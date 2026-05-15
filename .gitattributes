@@ -1,0 +1,9 @@
+# Normalize text files to LF in the repo; let Git choose binary vs text.
+* text=auto eol=lf
+
+# Windows scripts that must keep CRLF
+*.{cmd,bat} text eol=crlf
+
+# Binary assets (explicit)
+*.{png,jpg,jpeg,gif,webp,icns,ico,wasm,zip} binary
+*.{pdf,woff,woff2,ttf,eot} binary

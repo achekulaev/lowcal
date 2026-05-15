@@ -1,0 +1,26 @@
+# Example configuration — copied to the app config dir as terminals.yaml on first run.
+# Override path: set TAURI_APP_CONFIG or edit the file under the OS app config directory.
+#
+# Each profile opens an interactive login shell (cwd + env). Use **Start** in the app to run `command`.
+# Optional launch flags (see profile editor): warmOnStart (idle shell only), startCommandOnAppOpen (run command like Start).
+
+profiles:
+  - id: demo-shell
+    displayName: Demo shell
+    command: 'echo "Orchestrator demo (runs when you press Start)"'
+    cwd: ~
+    tags: [demo]
+
+  - id: example-api
+    displayName: Example API (edit me)
+    command: npm run dev
+    cwd: ~/your/project/api
+    env:
+      NODE_ENV: development
+    tags: [backend, fullstack]
+
+  - id: example-web
+    displayName: Example web (edit me)
+    command: npm run dev
+    cwd: ~/your/project/web
+    tags: [frontend, fullstack]

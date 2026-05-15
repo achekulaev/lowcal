@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Frontend build
+dist/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Environment & secrets (keep *.example tracked if you add templates)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Vite / tooling
+*.local
+*.tsbuildinfo
+
+# Test artifacts
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+
+# Cursor / agent rules (local only)
+.cursor/
+
+# Asset sources not shipped with the repo
+source_images/
+
+# Local tooling (icon rounding script)
+.venv-round-icon/
+
+CHANGELOG.md
