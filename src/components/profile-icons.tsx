@@ -72,14 +72,31 @@ export function SidebarTagFilterIcon() {
   );
 }
 
-/** Pencil — terminal header edit (grey accent). */
-export function EditProfileIcon() {
+/** Small folder glyph — cwd line in terminal stage header */
+export function CwdFolderIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden>
+    <svg
+      className="terminal-stage-cwd-folder-icon"
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      aria-hidden
+    >
       <path
         fill="currentColor"
-        d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.41l-2.34-2.34a1.003 1.003 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+        d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"
       />
+    </svg>
+  );
+}
+
+/** Vertical ellipsis — profile overflow (terminal header). */
+export function OverflowMenuIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden>
+      <circle cx="12" cy="6" r="1.75" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.75" fill="currentColor" />
+      <circle cx="12" cy="18" r="1.75" fill="currentColor" />
     </svg>
   );
 }

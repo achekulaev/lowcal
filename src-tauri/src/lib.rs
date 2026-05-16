@@ -164,6 +164,12 @@ fn resolve_working_directory(raw: Option<String>) -> Result<Option<String>, Stri
     Ok(Some(abs.display().to_string()))
 }
 
+/// User home directory for UI (tildeabbrev in the terminal header). `None` if unknown.
+#[tauri::command]
+fn user_home_directory() -> Result<Option<String>, String> {
+    Ok(dirs::home_dir().map(|p| p.display().to_string()))
+}
+
 fn default_config_yaml() -> &'static str {
     r#"# Terminal orchestrator — edit profiles and tags
 # Each profile opens an interactive login shell. Use **Start** to run `command` in that shell.
@@ -372,14 +378,17 @@ fn normalized_profile_body(
     if command.is_empty() {
         return Err("command is required".into());
     }
-    let cwd = input.cwd.and_then(|s| {
-        let t = s.trim().to_string();
-        if t.is_empty() {
-            None
-        } else {
-            Some(t)
-        }
-    });
+    let cwd = input
+        .cwd
+        .and_then(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t)
+            }
+        })
+        .or_else(|| dirs::home_dir().map(|h| h.display().to_string()));
     let tags = normalize_tags(input.tags);
     let env = normalize_env(input.env);
     let start_command_on_app_open = input.start_command_on_app_open;
@@ -1626,6 +1635,7 @@ pub fn run() {
             update_profile,
             delete_profile,
             resolve_working_directory,
+            user_home_directory,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

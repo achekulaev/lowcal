@@ -43,7 +43,7 @@ export function ProfileContextMenu(props: {
       onContextMenu={(e) => e.preventDefault()}
     >
       <button type="button" role="menuitem" className="profile-context-menu-item" onClick={onEdit}>
-        Edit…
+        Edit
       </button>
       <button type="button" role="menuitem" className="profile-context-menu-item danger" onClick={onDelete}>
         Delete

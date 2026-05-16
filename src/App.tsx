@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   useCallback,
@@ -27,6 +28,7 @@ import { getGlobalSettings } from "./settings/global-settings";
 import { useAppearance } from "./settings/use-appearance";
 import type { ProfileDto, ProfileFormState } from "./types/profile";
 import type { ModalMode, ProfileContextMenuState } from "./types/ui";
+import { confirmDeleteProfile } from "./utils/delete-profile-dialog";
 import { formatUserFacingError, notifyUserError } from "./utils/errors";
 import {
   emptyForm,
@@ -35,6 +37,9 @@ import {
   nextSelectedIdAfterDelete,
   tagsFromCommaString,
 } from "./utils/profile-form";
+
+/** When no tab is selected; matches startup title in `tauri.conf.json`. */
+const MAIN_WINDOW_TITLE_IDLE = "My LowCal Environment";
 
 export default function App() {
   // Read the global appearance preference (3-state: system | dark | light) and resolve it
@@ -167,7 +172,22 @@ export default function App() {
   const selected = profiles.find((p) => p.id === selectedId) ?? null;
   const tagBulkDisabled = !tagFilter;
 
+  useEffect(() => {
+    const title = selected ? `LowCal · ${selected.displayName}` : MAIN_WINDOW_TITLE_IDLE;
+    document.title = title;
+    void getCurrentWindow().setTitle(title).catch(() => {
+      /* Plain Vite (`npm run dev`) has no native window */
+    });
+  }, [selected?.displayName, selected?.id]);
+
   const [resolvedCwdAbsolute, setResolvedCwdAbsolute] = useState<string | null>(null);
+  const [homeDirAbsolute, setHomeDirAbsolute] = useState<string | null>(null);
+
+  useEffect(() => {
+    void invoke<string | null>("user_home_directory").then(setHomeDirAbsolute).catch(() => {
+      setHomeDirAbsolute(null);
+    });
+  }, []);
 
   useEffect(() => {
     setResolvedCwdAbsolute(null);
@@ -523,11 +543,7 @@ export default function App() {
 
   const deleteProfile = async () => {
     if (!editId) return;
-    if (
-      !confirm(
-        `Delete profile "${form.displayName}" (${editId})? This cannot be undone.`,
-      )
-    ) {
+    if (!(await confirmDeleteProfile(form.displayName))) {
       return;
     }
     setSaving(true);
@@ -561,14 +577,10 @@ export default function App() {
 
   const profileMenuDelete = (p: ProfileDto) => {
     setProfileMenu(null);
-    if (
-      !confirm(
-        `Delete "${p.displayName}" (${p.id})? Stops the session if running. This cannot be undone.`,
-      )
-    ) {
-      return;
-    }
     void run(async () => {
+      if (!(await confirmDeleteProfile(p.displayName))) {
+        return;
+      }
       const nextSel = nextSelectedIdAfterDelete(profiles, p.id, selectedId);
       await invoke("delete_profile", { id: p.id });
       setSelectedId(nextSel);
@@ -632,9 +644,11 @@ export default function App() {
           <TerminalStageHeader
             selected={selected}
             resolvedCwdAbsolute={resolvedCwdAbsolute}
+            homeDirAbsolute={homeDirAbsolute}
             startSpinHold={startSpinHold}
             stopSpinHold={stopSpinHold}
-            openEditModal={openEditModal}
+            profileMenuOpenForSelected={!!profileMenu && profileMenu.profileId === selected?.id}
+            setProfileMenu={setProfileMenu}
             startProfileFromUi={startProfileFromUi}
             stopProfileFromUi={stopProfileFromUi}
             restartRunningProfile={restartRunningProfileFromUi}

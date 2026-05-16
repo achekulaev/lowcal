@@ -51,9 +51,9 @@ function ProfileTabRow(props: {
         </span>
         <div className="profile-meta">
           <div className="profile-title">{p.displayName}</div>
-          {p.tags.length > 0 && (
-            <div className="tags-inline">
-              {p.tags.map((t) => (
+          <div className="tags-inline">
+            {p.tags.length > 0 ? (
+              p.tags.map((t) => (
                 <span
                   key={t}
                   className="tag-pill tag-pill--hue"
@@ -61,9 +61,11 @@ function ProfileTabRow(props: {
                 >
                   {t}
                 </span>
-              ))}
-            </div>
-          )}
+              ))
+            ) : (
+              <span className="tag-pill tag-pill--placeholder">(no tag)</span>
+            )}
+          </div>
         </div>
       </button>
       <button
@@ -201,25 +203,27 @@ export function ProfileSidebar(props: {
             </button>
           </div>
         </div>
-        {sidebarFilterOpen ? (
-          <div className="sidebar-profile-filter" role="search" aria-label="Filter profiles">
-            <input
-              ref={sidebarFilterInputRef as LegacyRef<HTMLInputElement>}
-              id="search-profiles"
-              type="search"
-              placeholder="Filter profiles…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  setQuery("");
-                  setSidebarFilterOpen(false);
-                }
-              }}
-            />
-          </div>
-        ) : null}
+        <div className="sidebar-chip-slot">
+          {sidebarFilterOpen ? (
+            <div className="sidebar-profile-filter" role="search" aria-label="Filter profiles">
+              <input
+                ref={sidebarFilterInputRef as LegacyRef<HTMLInputElement>}
+                id="search-profiles"
+                type="search"
+                placeholder="Filter profiles…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setQuery("");
+                    setSidebarFilterOpen(false);
+                  }
+                }}
+              />
+            </div>
+          ) : null}
+        </div>
       </div>
       <div className="profile-list">
         <div role="tablist" aria-label="Open terminal profiles">
@@ -254,17 +258,19 @@ export function ProfileSidebar(props: {
             );
           })}
         </div>
-        <div className="sidebar-add-inline" role="presentation">
-          <button
-            type="button"
-            className="sidebar-add-icon-btn"
-            onClick={openCreateModal}
-            aria-label="New terminal"
-            title="New terminal"
-          >
-            <NewTerminalIcon />
-          </button>
-        </div>
+        {filtered.length === 0 ? (
+          <div className="sidebar-add-inline" role="presentation">
+            <button
+              type="button"
+              className="sidebar-add-icon-btn"
+              onClick={openCreateModal}
+              aria-label="New terminal"
+              title="New terminal"
+            >
+              <NewTerminalIcon />
+            </button>
+          </div>
+        ) : null}
       </div>
     </aside>
   );
