@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Tag pill color preview — IT infra words A–Z</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --app-bg: #0f1115;
+        --panel-bg: #161922;
+        --muted: #8a90a2;
+        --text: #d8dbe5;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: var(--app-bg);
+        color: var(--text);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+          Arial, sans-serif;
+      }
+      header {
+        padding: 24px 28px 8px;
+      }
+      header h1 {
+        margin: 0 0 6px;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      header p {
+        margin: 0;
+        font-size: 13px;
+        color: var(--muted);
+        max-width: 70ch;
+        line-height: 1.45;
+      }
+      .panel {
+        margin: 16px 28px 28px;
+        padding: 18px 20px;
+        background: var(--panel-bg);
+        border: 1px solid #232838;
+        border-radius: 10px;
+      }
+      .panel + .panel {
+        margin-top: 0;
+      }
+      h2 {
+        margin: 0 0 12px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--muted);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      .tag-pill {
+        font-size: 0.78rem;
+        line-height: 1.1;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        white-space: nowrap;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 10px 14px;
+      }
+      .grid .cell {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .grid .cell .letter {
+        width: 1.1em;
+        font-variant-numeric: tabular-nums;
+        color: #5e6478;
+      }
+      .swatch-row {
+        display: grid;
+        grid-template-columns: repeat(26, 1fr);
+        gap: 2px;
+        margin-top: 8px;
+      }
+      .swatch {
+        height: 28px;
+        border-radius: 4px;
+      }
+      footer {
+        margin: 0 28px 28px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      code {
+        font-family:
+          ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+          monospace;
+        background: #1d2230;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 11.5px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>tagPillStyle() — IT infra words, one per letter</h1>
+      <p>
+        Generated with the exact function from
+        <code>src/utils/tag-pills.ts</code>. Hues are now picked from
+        <strong>allowed bands</strong> only — purples/magentas
+        (<code>260°–330°</code>) are skipped and the blue band
+        (<code>200°–260°</code>) is widened to absorb their mass. A separate
+        hash word makes roughly <strong>1 in 5</strong> tags render as a
+        near-neutral grey (saturation <code>3–8%</code>) so the row feels less
+        uniformly tinted.
+      </p>
+    </header>
+
+    <section class="panel">
+      <h2>Pills — non-highlighted</h2>
+      <div class="row" id="pills-normal"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Pills — highlighted</h2>
+      <div class="row" id="pills-highlighted"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Grid — letter → word</h2>
+      <div class="grid" id="grid"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Hue-only swatches (background color, no border / text)</h2>
+      <div class="swatch-row" id="swatches"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Larger sample — 100+ infra words (grey distribution check)</h2>
+      <div class="row" id="pills-large"></div>
+    </section>
+
+    <footer>
+      Function ported verbatim to JS in this file — same FNV-1a 32-bit hash,
+      same mix32 avalanche, same multiply-spread for hue.
+    </footer>
+
+    <script>
+      // --- Ported verbatim from src/utils/tag-pills.ts ---------------------
+      function fnv1a32(str) {
+        let h = 2166136261;
+        for (let i = 0; i < str.length; i++) {
+          h ^= str.charCodeAt(i);
+          h = Math.imul(h, 16777619);
+        }
+        return h >>> 0;
+      }
+      function mix32(x) {
+        let z = x >>> 0;
+        z ^= z >>> 16;
+        z = Math.imul(z, 0x85ebca6b);
+        z ^= z >>> 13;
+        z = Math.imul(z, 0xc2b2ae35);
+        z ^= z >>> 16;
+        return z >>> 0;
+      }
+      function tagWord(s, salt) {
+        return mix32(fnv1a32(`${salt}\0${s}`));
+      }
+      // Allowed hue bands — purples/magentas (260–330) intentionally excluded.
+      // Blue band 200–260 is widened to absorb what would have been purple pills.
+      const HUE_BANDS = [
+        [350, 390], // red → warm (40°), wraps past 360°
+        [30, 60], // orange (30°)
+        [60, 95], // yellow / chartreuse (35°)
+        [95, 160], // greens (65°)
+        [160, 200], // teal / cyan (40°)
+        [200, 260], // blues (60°) — widened to replace purples
+        [330, 350], // pink / rose (20°)
+      ];
+      const HUE_BAND_WIDTHS = HUE_BANDS.map(([a, b]) => b - a);
+      const HUE_TOTAL_WIDTH = HUE_BAND_WIDTHS.reduce((s, w) => s + w, 0);
+      function hueFromBands(spread) {
+        let r = spread % HUE_TOTAL_WIDTH;
+        for (let i = 0; i < HUE_BANDS.length; i++) {
+          const w = HUE_BAND_WIDTHS[i];
+          if (r < w) return (HUE_BANDS[i][0] + r) % 360;
+          r -= w;
+        }
+        return 0;
+      }
+      function tagPillStyle(tag, highlighted) {
+        const key = tag.trim();
+        const k = key.length === 0 ? "\0" : key;
+        const hueSeed = tagWord(k, "hue");
+        const hueSpread = Math.imul(hueSeed, 2654435761) >>> 0;
+        const hue = hueFromBands(hueSpread);
+        const isGrey = tagWord(k, "grey") % 5 === 0;
+        const sat = isGrey
+          ? 3 + (tagWord(k, "sat") % 6)
+          : 16 + (tagWord(k, "sat") % 17);
+        const bgBase = 22 + (tagWord(k, "bg") % 9);
+        const fg = 70 + (tagWord(k, "fg") % 14);
+        const bg = highlighted ? bgBase + 5 : bgBase;
+        const borderSat = Math.max(sat - 10, isGrey ? 0 : 9);
+        const borderL = bg + (highlighted ? 18 : 10);
+        const fgSat = isGrey ? Math.min(sat + 2, 10) : Math.min(sat + 5, 34);
+        const highlightBorderSat = highlighted
+          ? Math.min(sat + 8, isGrey ? 14 : 36)
+          : borderSat;
+        return {
+          background: `hsl(${hue} ${sat}% ${bg}%)`,
+          color: `hsl(${hue} ${fgSat}% ${fg}%)`,
+          border: `1px solid hsl(${hue} ${highlightBorderSat}% ${Math.min(borderL, 44)}%)`,
+          _hue: hue,
+          _isGrey: isGrey,
+        };
+      }
+      // ----------------------------------------------------------------------
+
+      const WORDS = [
+        "Ansible",
+        "Bash",
+        "Cloud",
+        "Docker",
+        "Elasticsearch",
+        "Firewall",
+        "Git",
+        "HAProxy",
+        "Ingress",
+        "Jenkins",
+        "Kubernetes",
+        "Linux",
+        "MySQL",
+        "Nginx",
+        "OpenShift",
+        "Prometheus",
+        "QEMU",
+        "Redis",
+        "SSH",
+        "Terraform",
+        "Ubuntu",
+        "VPN",
+        "Webhook",
+        "XenServer",
+        "YAML",
+        "Zookeeper",
+      ];
+
+      function makePill(word, highlighted) {
+        const s = tagPillStyle(word, highlighted);
+        const el = document.createElement("span");
+        el.className = "tag-pill";
+        el.textContent = word;
+        el.style.background = s.background;
+        el.style.color = s.color;
+        el.style.border = s.border;
+        return el;
+      }
+
+      const LARGE_SAMPLE = [
+        "Ansible",
+        "Apache",
+        "API",
+        "AWS",
+        "Azure",
+        "Bastion",
+        "Bash",
+        "BGP",
+        "Backup",
+        "Bind",
+        "Cassandra",
+        "CDN",
+        "Cilium",
+        "Cluster",
+        "Cloud",
+        "ConfigMap",
+        "Container",
+        "Consul",
+        "Cron",
+        "Daemon",
+        "Datadog",
+        "DHCP",
+        "Docker",
+        "Domain",
+        "DNS",
+        "Edge",
+        "Elastic",
+        "Envoy",
+        "Etcd",
+        "Falco",
+        "Firewall",
+        "Fleet",
+        "Fluentd",
+        "Gateway",
+        "Git",
+        "GitHub",
+        "GitLab",
+        "Grafana",
+        "GraphQL",
+        "HAProxy",
+        "Hashicorp",
+        "Helm",
+        "Hub",
+        "Hypervisor",
+        "IAM",
+        "Ingress",
+        "Istio",
+        "Jaeger",
+        "Java",
+        "Jenkins",
+        "JumpHost",
+        "Kafka",
+        "Kibana",
+        "Kong",
+        "Kubelet",
+        "Kubernetes",
+        "LDAP",
+        "Linkerd",
+        "Linux",
+        "Loadbalancer",
+        "Loki",
+        "MariaDB",
+        "Mesh",
+        "Mongo",
+        "Monitoring",
+        "MySQL",
+        "Nagios",
+        "Namespace",
+        "NATS",
+        "Network",
+        "Nginx",
+        "Node",
+        "Nomad",
+        "OpenShift",
+        "OpenSSL",
+        "Operator",
+        "Orchestrator",
+        "Packer",
+        "PagerDuty",
+        "PostgreSQL",
+        "Prometheus",
+        "Proxy",
+        "Pulumi",
+        "Puppet",
+        "QEMU",
+        "Queue",
+        "RabbitMQ",
+        "Redis",
+        "Replica",
+        "Restic",
+        "Route53",
+        "Router",
+        "S3",
+        "SaltStack",
+        "Secrets",
+        "Sentry",
+        "Server",
+        "Service",
+        "Sidecar",
+        "Slack",
+        "SNMP",
+        "Splunk",
+        "SQL",
+        "SSH",
+        "SSL",
+        "Storage",
+        "Switch",
+        "Sysctl",
+        "Systemd",
+        "TCP",
+        "Telegraf",
+        "Terraform",
+        "TLS",
+        "Traefik",
+        "Tunnel",
+        "Ubuntu",
+        "UDP",
+        "Uptime",
+        "Vagrant",
+        "Vault",
+        "VLAN",
+        "VPC",
+        "VPN",
+        "WAF",
+        "Webhook",
+        "Wireguard",
+        "Wireshark",
+        "XenServer",
+        "YAML",
+        "Zone",
+        "Zookeeper",
+        "Zsh",
+      ];
+
+      const normal = document.getElementById("pills-normal");
+      const high = document.getElementById("pills-highlighted");
+      const grid = document.getElementById("grid");
+      const swatches = document.getElementById("swatches");
+      const large = document.getElementById("pills-large");
+
+      WORDS.forEach((w) => {
+        normal.appendChild(makePill(w, false));
+        high.appendChild(makePill(w, true));
+
+        const cell = document.createElement("div");
+        cell.className = "cell";
+        const letter = document.createElement("span");
+        letter.className = "letter";
+        letter.textContent = w[0].toUpperCase();
+        cell.appendChild(letter);
+        cell.appendChild(makePill(w, false));
+        grid.appendChild(cell);
+
+        const s = tagPillStyle(w, false);
+        const sw = document.createElement("div");
+        sw.className = "swatch";
+        sw.style.background = `hsl(${s._hue} 60% 50%)`;
+        sw.title = `${w} → hue ${s._hue}${s._isGrey ? " (grey)" : ""}`;
+        swatches.appendChild(sw);
+      });
+
+      let greyCount = 0;
+      LARGE_SAMPLE.forEach((w) => {
+        const s = tagPillStyle(w, false);
+        if (s._isGrey) greyCount++;
+        large.appendChild(makePill(w, false));
+      });
+      const note = document.createElement("div");
+      note.style.marginTop = "10px";
+      note.style.fontSize = "11.5px";
+      note.style.color = "var(--muted)";
+      note.textContent = `Grey pills in sample: ${greyCount} / ${LARGE_SAMPLE.length} (~${Math.round(
+        (greyCount / LARGE_SAMPLE.length) * 100,
+      )}%) — target is ~20%.`;
+      large.parentElement.appendChild(note);
+    </script>
+  </body>
+</html>
