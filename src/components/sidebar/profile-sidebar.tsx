@@ -17,6 +17,7 @@ function ProfileTabRow(props: {
   tagFilter: string | null;
   ptyOutputRecent: boolean;
   startBusy: boolean;
+  stopBusy: boolean;
   onSelect: () => void;
   onOpenContextMenu: (e: React.MouseEvent) => void;
   onToggleRun: () => void;
@@ -67,32 +68,42 @@ function ProfileTabRow(props: {
       </button>
       <button
         type="button"
-        className={`profile-tab-run-btn${p.status === "running" ? " stop" : ""}${props.startBusy ? " pending" : ""}`}
-        disabled={props.startBusy}
-        aria-busy={props.startBusy}
+        className={`profile-tab-run-btn${
+          props.startBusy || props.stopBusy
+            ? " pending"
+            : p.status === "running"
+              ? " stop"
+              : ""
+        }`}
+        disabled={props.startBusy || props.stopBusy}
+        aria-busy={props.startBusy || props.stopBusy}
         title={
-          p.status === "running"
-            ? "Stop"
-            : props.startBusy
-              ? "Starting…"
-              : "Start saved command"
+          props.startBusy
+            ? "Starting…"
+            : props.stopBusy
+              ? "Stopping…"
+              : p.status === "running"
+                ? "Stop"
+                : "Start saved command"
         }
         aria-label={
-          p.status === "running"
-            ? `Stop ${p.displayName}`
-            : props.startBusy
-              ? `Starting ${p.displayName}`
-              : `Start saved command for ${p.displayName}`
+          props.startBusy
+            ? `Starting ${p.displayName}`
+            : props.stopBusy
+              ? `Stopping ${p.displayName}`
+              : p.status === "running"
+                ? `Stop ${p.displayName}`
+                : `Start saved command for ${p.displayName}`
         }
         onClick={(e) => {
           e.stopPropagation();
           props.onToggleRun();
         }}
       >
-        {p.status === "running" ? (
-          <SidebarTabRunIcon running />
-        ) : props.startBusy ? (
+        {props.startBusy || props.stopBusy ? (
           <StartPendingSpinner />
+        ) : p.status === "running" ? (
+          <SidebarTabRunIcon running />
         ) : (
           <SidebarTabRunIcon running={false} />
         )}
@@ -114,6 +125,7 @@ export function ProfileSidebar(props: {
   openCreateModal: () => void;
   toggleProfileRun: (p: ProfileDto) => void;
   startSpinHold: Record<string, true>;
+  stopSpinHold: Record<string, true>;
   ptyOutputActivityTick: number;
   lastPtyOutputMsRef: MutableRefObject<Record<string, number>>;
   tagFilter: string | null;
@@ -133,6 +145,7 @@ export function ProfileSidebar(props: {
     openCreateModal,
     toggleProfileRun,
     startSpinHold,
+    stopSpinHold,
     ptyOutputActivityTick,
     lastPtyOutputMsRef,
     tagFilter,
@@ -215,7 +228,8 @@ export function ProfileSidebar(props: {
             const tOut = lastPtyOutputMsRef.current[p.id];
             const ptyOutputRecent =
               tOut != null && Date.now() - tOut < PTY_OUTPUT_ACTIVITY_MS;
-            const startBusy = p.status !== "running" && Boolean(startSpinHold[p.id]);
+            const startBusy = Boolean(startSpinHold[p.id]);
+            const stopBusy = Boolean(stopSpinHold[p.id]);
             return (
               <ProfileTabRow
                 key={p.id}
@@ -224,6 +238,7 @@ export function ProfileSidebar(props: {
                 tagFilter={tagFilter}
                 ptyOutputRecent={ptyOutputRecent}
                 startBusy={startBusy}
+                stopBusy={stopBusy}
                 onSelect={() => setSelectedId(p.id)}
                 onOpenContextMenu={(e) => {
                   e.preventDefault();

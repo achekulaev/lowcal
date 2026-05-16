@@ -7,8 +7,9 @@ export function TopToolbar(props: {
   setTagFilter: React.Dispatch<React.SetStateAction<string | null>>;
   tagBulkDisabled: boolean;
   run: (fn: () => Promise<void>) => Promise<void>;
+  restartProfilesByTag: (tag: string) => Promise<void>;
 }) {
-  const { allTags, tagFilter, setTagFilter, tagBulkDisabled, run } = props;
+  const { allTags, tagFilter, setTagFilter, tagBulkDisabled, run, restartProfilesByTag } = props;
 
   return (
     <header className="toolbar">
@@ -53,7 +54,7 @@ export function TopToolbar(props: {
           <button
             type="button"
             onClick={() => {
-              void run(() => invoke("restart_tag", { tag: tagFilter }));
+              void run(() => restartProfilesByTag(tagFilter));
             }}
           >
             Restart tag

@@ -2,25 +2,37 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal, type IDisposable } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useLayoutEffect, useRef } from "react";
+import {
+  getGlobalSettings,
+  xtermOptionsFromGlobalSettings,
+  xtermThemeForResolved,
+  type ResolvedTheme,
+} from "../../settings/global-settings";
 import { waitWsOrigin } from "../../tauri/wait-ws-origin";
 import { base64ToUint8Array, utf8ToBase64 } from "../../utils/ws-encoding";
 
 /**
  * One persistent xterm per opened profile: PTY runs an interactive login shell; Start injects the
  * YAML profile command. `wsGeneration` forces a reconnect after the backend replaces the shell.
+ * `resolvedTheme` is the live `dark | light` value from `useAppearance`; the xterm palette is
+ * swapped via `term.options.theme = ...` so the running terminal flips colors without remount.
  */
 export function ProfileTerminalSession({
   profileId,
   isForeground,
   wsGeneration,
+  resolvedTheme,
   onBridgeOpen,
   onPtyOutput,
+  registerTerminalClearHandler,
 }: {
   profileId: string;
   isForeground: boolean;
   wsGeneration: number;
+  resolvedTheme: ResolvedTheme;
   onBridgeOpen: (profileId: string) => void;
   onPtyOutput: (profileId: string) => void;
+  registerTerminalClearHandler: (profileId: string, handler: (() => void) | null) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -64,14 +76,8 @@ export function ProfileTerminalSession({
     if (!host) return;
 
     const term = new Terminal({
+      ...xtermOptionsFromGlobalSettings(getGlobalSettings().terminal, resolvedTheme),
       cursorBlink: true,
-      fontFamily: "Menlo, Monaco, Consolas, monospace",
-      fontSize: 13,
-      theme: {
-        background: "#0d1117",
-        foreground: "#e6edf3",
-        cursor: "#58a6ff",
-      },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -79,6 +85,9 @@ export function ProfileTerminalSession({
     fit.fit();
     termRef.current = term;
     fitRef.current = fit;
+    registerTerminalClearHandler(profileId, () => {
+      term.clear();
+    });
 
     const ro = new ResizeObserver(() => {
       fitRef.current?.fit();
@@ -98,12 +107,23 @@ export function ProfileTerminalSession({
       onDataDisposableRef.current = null;
       onResizeDisposableRef.current?.dispose();
       onResizeDisposableRef.current = null;
+      registerTerminalClearHandler(profileId, null);
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
       host.innerHTML = "";
     };
-  }, [profileId]);
+    // `resolvedTheme` is read at construction only; live updates are handled by the
+    // dedicated theme effect below so the terminal does not remount (which would wipe
+    // scrollback) every time the app theme flips.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileId, registerTerminalClearHandler]);
+
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.theme = xtermThemeForResolved(resolvedTheme);
+  }, [resolvedTheme]);
 
   useEffect(() => {
     const term = termRef.current;

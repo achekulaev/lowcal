@@ -14,10 +14,17 @@ import { ProfileSidebar } from "./components/sidebar/profile-sidebar";
 import { TerminalStageHeader } from "./components/terminal/terminal-stage-header";
 import { TerminalWorkArea } from "./components/terminal/terminal-work-area";
 import { TopToolbar } from "./components/toolbar/top-toolbar";
-import { START_SPIN_HOLD_MS } from "./constants/terminal-ui";
+import {
+  START_SPIN_HOLD_MS,
+  START_SPIN_MIN_VISIBLE_MS,
+  STOP_SPIN_HOLD_MAX_MS,
+  STOP_SPIN_MIN_VISIBLE_MS,
+} from "./constants/terminal-ui";
 import { useProfiles } from "./hooks/use-profiles";
 import { useSidebarFilter } from "./hooks/use-sidebar-filter";
 import { useTerminalSessionGlue } from "./hooks/use-terminal-session-glue";
+import { getGlobalSettings } from "./settings/global-settings";
+import { useAppearance } from "./settings/use-appearance";
 import type { ProfileDto, ProfileFormState } from "./types/profile";
 import type { ModalMode, ProfileContextMenuState } from "./types/ui";
 import { formatUserFacingError, notifyUserError } from "./utils/errors";
@@ -30,6 +37,11 @@ import {
 } from "./utils/profile-form";
 
 export default function App() {
+  // Read the global appearance preference (3-state: system | dark | light) and resolve it
+  // against the live `prefers-color-scheme` value. The hook also writes `data-theme` onto
+  // `<html>` so CSS tokens can switch. There is no settings UI yet; the preference comes
+  // from `getGlobalSettings()` defaults and is recomputed on every render (cheap).
+  const resolvedTheme = useAppearance(getGlobalSettings().appearance.theme);
   const { profiles, refresh } = useProfiles();
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const sidebarFilterApi = useSidebarFilter(modalMode);
@@ -49,6 +61,8 @@ export default function App() {
     ptyOutputActivityTick,
     onTerminalBridgeOpen,
     notePtyOutput,
+    registerTerminalClearHandler,
+    clearTerminalBuffersForProfiles,
   } = useTerminalSessionGlue(profiles, selectedId);
 
   const [editId, setEditId] = useState<string | null>(null);
@@ -60,15 +74,38 @@ export default function App() {
 
   const startSpinHoldRef = useRef<Set<string>>(new Set());
   const startSpinTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const startSpinDeferTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const startSpinStartedAtRef = useRef<Record<string, number>>({});
   const [startSpinHold, setStartSpinHold] = useState<Record<string, true>>({});
+
+  const stopSpinHoldRef = useRef<Set<string>>(new Set());
+  const stopSpinTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const stopSpinDeferTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const stopSpinStartedAtRef = useRef<Record<string, number>>({});
+  const [stopSpinHold, setStopSpinHold] = useState<Record<string, true>>({});
 
   useEffect(() => {
     return () => {
       for (const t of Object.values(startSpinTimersRef.current)) {
         clearTimeout(t);
       }
+      for (const t of Object.values(startSpinDeferTimersRef.current)) {
+        clearTimeout(t);
+      }
+      for (const t of Object.values(stopSpinTimersRef.current)) {
+        clearTimeout(t);
+      }
+      for (const t of Object.values(stopSpinDeferTimersRef.current)) {
+        clearTimeout(t);
+      }
       startSpinTimersRef.current = {};
+      startSpinDeferTimersRef.current = {};
+      startSpinStartedAtRef.current = {};
+      stopSpinTimersRef.current = {};
+      stopSpinDeferTimersRef.current = {};
+      stopSpinStartedAtRef.current = {};
       startSpinHoldRef.current.clear();
+      stopSpinHoldRef.current.clear();
     };
   }, []);
 
@@ -168,6 +205,12 @@ export default function App() {
       clearTimeout(t);
       delete startSpinTimersRef.current[id];
     }
+    const dt = startSpinDeferTimersRef.current[id];
+    if (dt !== undefined) {
+      clearTimeout(dt);
+      delete startSpinDeferTimersRef.current[id];
+    }
+    delete startSpinStartedAtRef.current[id];
     startSpinHoldRef.current.delete(id);
     setStartSpinHold((s) => {
       if (!s[id]) return s;
@@ -177,10 +220,32 @@ export default function App() {
     });
   }, []);
 
+  // Honor a minimum perceptible window: if elapsed < min, defer the clear so the
+  // spinner is actually visible. Idempotent — repeated calls collapse onto the
+  // single deferred timer.
+  const requestClearStartSpinHold = useCallback(
+    (id: string) => {
+      if (!startSpinHoldRef.current.has(id)) return;
+      const startedAt = startSpinStartedAtRef.current[id];
+      const elapsed = startedAt !== undefined ? Date.now() - startedAt : START_SPIN_MIN_VISIBLE_MS;
+      if (elapsed >= START_SPIN_MIN_VISIBLE_MS) {
+        clearStartSpinHold(id);
+        return;
+      }
+      if (startSpinDeferTimersRef.current[id] !== undefined) return;
+      startSpinDeferTimersRef.current[id] = window.setTimeout(() => {
+        delete startSpinDeferTimersRef.current[id];
+        clearStartSpinHold(id);
+      }, START_SPIN_MIN_VISIBLE_MS - elapsed);
+    },
+    [clearStartSpinHold],
+  );
+
   const beginStartSpinHold = useCallback(
     (id: string): boolean => {
       if (startSpinHoldRef.current.has(id)) return false;
       startSpinHoldRef.current.add(id);
+      startSpinStartedAtRef.current[id] = Date.now();
       setStartSpinHold((s) => ({ ...s, [id]: true }));
       startSpinTimersRef.current[id] = window.setTimeout(
         () => clearStartSpinHold(id),
@@ -189,6 +254,78 @@ export default function App() {
       return true;
     },
     [clearStartSpinHold],
+  );
+
+  const clearStopSpinHold = useCallback((id: string) => {
+    const t = stopSpinTimersRef.current[id];
+    if (t !== undefined) {
+      clearTimeout(t);
+      delete stopSpinTimersRef.current[id];
+    }
+    const dt = stopSpinDeferTimersRef.current[id];
+    if (dt !== undefined) {
+      clearTimeout(dt);
+      delete stopSpinDeferTimersRef.current[id];
+    }
+    delete stopSpinStartedAtRef.current[id];
+    stopSpinHoldRef.current.delete(id);
+    setStopSpinHold((s) => {
+      if (!s[id]) return s;
+      const next = { ...s };
+      delete next[id];
+      return next;
+    });
+  }, []);
+
+  const requestClearStopSpinHold = useCallback(
+    (id: string) => {
+      if (!stopSpinHoldRef.current.has(id)) return;
+      const startedAt = stopSpinStartedAtRef.current[id];
+      const elapsed = startedAt !== undefined ? Date.now() - startedAt : STOP_SPIN_MIN_VISIBLE_MS;
+      if (elapsed >= STOP_SPIN_MIN_VISIBLE_MS) {
+        clearStopSpinHold(id);
+        return;
+      }
+      if (stopSpinDeferTimersRef.current[id] !== undefined) return;
+      stopSpinDeferTimersRef.current[id] = window.setTimeout(() => {
+        delete stopSpinDeferTimersRef.current[id];
+        clearStopSpinHold(id);
+      }, STOP_SPIN_MIN_VISIBLE_MS - elapsed);
+    },
+    [clearStopSpinHold],
+  );
+
+  const beginStopSpinHold = useCallback(
+    (id: string): boolean => {
+      if (stopSpinHoldRef.current.has(id)) return false;
+      stopSpinHoldRef.current.add(id);
+      stopSpinStartedAtRef.current[id] = Date.now();
+      setStopSpinHold((s) => ({ ...s, [id]: true }));
+      stopSpinTimersRef.current[id] = window.setTimeout(
+        () => clearStopSpinHold(id),
+        STOP_SPIN_HOLD_MAX_MS,
+      );
+      return true;
+    },
+    [clearStopSpinHold],
+  );
+
+  const stopProfileFromUi = useCallback(
+    (id: string) => {
+      if (!beginStopSpinHold(id)) return;
+      void (async () => {
+        try {
+          await invoke("stop_profile", { id });
+          await refresh();
+        } catch (e) {
+          console.error(e);
+          void notifyUserError(e);
+        } finally {
+          requestClearStopSpinHold(id);
+        }
+      })();
+    },
+    [beginStopSpinHold, requestClearStopSpinHold, refresh],
   );
 
   const startProfileFromUi = useCallback(
@@ -207,13 +344,33 @@ export default function App() {
     [beginStartSpinHold, refresh],
   );
 
+  const restartRunningProfileFromUi = useCallback(
+    (id: string) =>
+      run(async () => {
+        clearTerminalBuffersForProfiles([id]);
+        await invoke("restart_profile", { id });
+      }),
+    [clearTerminalBuffersForProfiles, run],
+  );
+
+  const restartProfilesByTagFromUi = useCallback(
+    async (tag: string) => {
+      const ids = profiles
+        .filter((p) => p.tags.some((t) => t === tag))
+        .map((p) => p.id);
+      clearTerminalBuffersForProfiles(ids);
+      await invoke("restart_tag", { tag });
+    },
+    [clearTerminalBuffersForProfiles, profiles],
+  );
+
   useEffect(() => {
     for (const p of profiles) {
       if (p.status === "running" && startSpinHoldRef.current.has(p.id)) {
-        clearStartSpinHold(p.id);
+        requestClearStartSpinHold(p.id);
       }
     }
-  }, [profiles, clearStartSpinHold]);
+  }, [profiles, requestClearStartSpinHold]);
 
   useEffect(() => {
     const valid = new Set(profiles.map((p) => p.id));
@@ -221,6 +378,21 @@ export default function App() {
       if (!valid.has(id)) clearStartSpinHold(id);
     }
   }, [profiles, clearStartSpinHold]);
+
+  useEffect(() => {
+    for (const p of profiles) {
+      if (p.status !== "running" && stopSpinHoldRef.current.has(p.id)) {
+        requestClearStopSpinHold(p.id);
+      }
+    }
+  }, [profiles, requestClearStopSpinHold]);
+
+  useEffect(() => {
+    const valid = new Set(profiles.map((p) => p.id));
+    for (const id of [...stopSpinHoldRef.current]) {
+      if (!valid.has(id)) clearStopSpinHold(id);
+    }
+  }, [profiles, clearStopSpinHold]);
 
   const openCreateModal = () => {
     setEditId(null);
@@ -325,11 +497,20 @@ export default function App() {
   const pickWorkingDirectory = async () => {
     try {
       const trimmed = form.cwd.trim();
+      let defaultPath: string | undefined;
+      if (trimmed.length > 0) {
+        try {
+          const abs = await invoke<string | null>("resolve_working_directory", { raw: trimmed });
+          defaultPath = abs ?? trimmed;
+        } catch {
+          defaultPath = trimmed;
+        }
+      }
       const picked = await open({
         directory: true,
         multiple: false,
         title: "Working directory",
-        defaultPath: trimmed.length > 0 ? trimmed : undefined,
+        defaultPath,
       });
       if (picked !== null) {
         setForm((f) => ({ ...f, cwd: picked }));
@@ -367,9 +548,7 @@ export default function App() {
   const toggleProfileRun = (p: ProfileDto) => {
     if (p.status === "running") {
       clearStartSpinHold(p.id);
-      void run(async () => {
-        await invoke("stop_profile", { id: p.id });
-      });
+      stopProfileFromUi(p.id);
     } else {
       startProfileFromUi(p.id);
     }
@@ -422,6 +601,7 @@ export default function App() {
             setTagFilter={setTagFilter}
             tagBulkDisabled={tagBulkDisabled}
             run={run}
+            restartProfilesByTag={(tag) => run(() => restartProfilesByTagFromUi(tag))}
           />
         </div>
       </div>
@@ -440,6 +620,7 @@ export default function App() {
           openCreateModal={openCreateModal}
           toggleProfileRun={toggleProfileRun}
           startSpinHold={startSpinHold}
+          stopSpinHold={stopSpinHold}
           ptyOutputActivityTick={ptyOutputActivityTick}
           lastPtyOutputMsRef={lastPtyOutputMsRef}
           tagFilter={tagFilter}
@@ -452,9 +633,11 @@ export default function App() {
             selected={selected}
             resolvedCwdAbsolute={resolvedCwdAbsolute}
             startSpinHold={startSpinHold}
+            stopSpinHold={stopSpinHold}
             openEditModal={openEditModal}
             startProfileFromUi={startProfileFromUi}
-            run={run}
+            stopProfileFromUi={stopProfileFromUi}
+            restartRunningProfile={restartRunningProfileFromUi}
           />
           <TerminalWorkArea
             profiles={profiles}
@@ -463,8 +646,10 @@ export default function App() {
             shellEnsured={shellEnsured}
             bridgeReady={bridgeReady}
             wsGenerationByProfile={wsGenerationByProfile}
+            resolvedTheme={resolvedTheme}
             onTerminalBridgeOpen={onTerminalBridgeOpen}
             onPtyOutput={notePtyOutput}
+            registerTerminalClearHandler={registerTerminalClearHandler}
           />
         </section>
       </div>

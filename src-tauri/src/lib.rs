@@ -576,6 +576,66 @@ fn foreground_is_login_shell(master_fd: libc::c_int, shell_pid: libc::pid_t) -> 
     }
 }
 
+/// After the first Ctrl+C, wait up to 1500ms for the foreground to return to the login shell.
+/// Some foreground jobs (e.g. Docker Compose) need a second interrupt to finish teardown.
+#[cfg(unix)]
+fn poll_second_interrupt_if_foreground_busy(
+    ctl_tx: &std::sync::mpsc::Sender<PtyCtl>,
+    master: &Arc<Mutex<Box<dyn MasterPty + Send>>>,
+    shell_pid: i32,
+) {
+    if shell_pid <= 0 {
+        return;
+    }
+    const POLL_TOTAL: Duration = Duration::from_millis(1500);
+    const TICK: Duration = Duration::from_millis(50);
+    let deadline = Instant::now() + POLL_TOTAL;
+    while Instant::now() < deadline {
+        std::thread::sleep(TICK);
+        let fd_opt = {
+            let g = master.lock();
+            g.as_raw_fd()
+        };
+        let Some(fd) = fd_opt else {
+            continue;
+        };
+        if foreground_is_login_shell(fd, shell_pid as libc::pid_t) {
+            return;
+        }
+    }
+    let fd_opt = {
+        let g = master.lock();
+        g.as_raw_fd()
+    };
+    let Some(fd) = fd_opt else {
+        return;
+    };
+    if !foreground_is_login_shell(fd, shell_pid as libc::pid_t) {
+        let _ = ctl_tx.send(PtyCtl::Stdin(vec![0x03]));
+    }
+}
+
+#[cfg(not(unix))]
+fn poll_second_interrupt_if_foreground_busy(
+    _ctl_tx: &std::sync::mpsc::Sender<PtyCtl>,
+    _master: &Arc<Mutex<Box<dyn MasterPty + Send>>>,
+    _shell_pid: i32,
+) {
+}
+
+fn stop_session_foreground_interrupt(
+    ctl_tx: &std::sync::mpsc::Sender<PtyCtl>,
+    master: &Arc<Mutex<Box<dyn MasterPty + Send>>>,
+    shell_pid: i32,
+    running_flag: &Arc<AtomicBool>,
+    gate: &Arc<parking_lot::Mutex<Option<Instant>>>,
+) {
+    let _ = ctl_tx.send(PtyCtl::Stdin(vec![0x03]));
+    poll_second_interrupt_if_foreground_busy(ctl_tx, master, shell_pid);
+    running_flag.store(false, Ordering::SeqCst);
+    *gate.lock() = None;
+}
+
 /// Wait until the login shell owns the TTY foreground (interactive), or timeout.
 /// Without this, injecting the Start command immediately after `spawn_shell_session` often races
 /// the shell/login init and the command never runs.
@@ -754,6 +814,15 @@ fn spawn_shell_session(app: &AppHandle, state: &SharedState, profile_id: &str) -
 
     let mut cmd = CommandBuilder::new(&shell);
     cmd.arg("-l");
+
+    // PTY output is rendered by xterm.js, so the terminal type is *always*
+    // `xterm-256color` regardless of how LowCal itself was launched. Without
+    // these defaults, an `.app` opened from Finder/Dock inherits launchd's
+    // minimal env (no `TERM`, no `COLORTERM`), the login shell falls back to
+    // `dumb`, and prompts/colors/keys behave oddly even though the PTY itself
+    // is healthy. profile.env still overrides these via the loop below.
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
 
     if let Some(ref cwd) = profile.cwd {
         cmd.cwd(expand_path(cwd));
@@ -1038,16 +1107,22 @@ fn stop_profile_inner(app: &AppHandle, state: &SharedState, id: &str) -> Result<
     let snap = state.sessions.lock().get(id).map(|rt| {
         (
             rt.ctl_tx.clone(),
+            Arc::clone(&rt.master),
+            rt.shell_pid,
             Arc::clone(&rt.command_running),
             Arc::clone(&rt.watch_gate),
         )
     });
-    let Some((ctl_tx, running_flag, gate)) = snap else {
+    let Some((ctl_tx, master, shell_pid, running_flag, gate)) = snap else {
         return Ok(());
     };
-    let _ = ctl_tx.send(PtyCtl::Stdin(vec![0x03]));
-    running_flag.store(false, Ordering::SeqCst);
-    *gate.lock() = None;
+    stop_session_foreground_interrupt(
+        &ctl_tx,
+        &master,
+        shell_pid,
+        &running_flag,
+        &gate,
+    );
     emit_profiles(app, state);
     Ok(())
 }
@@ -1073,85 +1148,168 @@ fn reload_config_disk(state: tauri::State<'_, SharedState>, app: AppHandle) -> R
     Ok(())
 }
 
-#[tauri::command]
-fn ensure_shell_session(state: tauri::State<'_, SharedState>, app: AppHandle, id: String) -> Result<(), String> {
-    ensure_shell_session_impl(&app, &state, &id)
-}
-
-#[tauri::command]
-fn start_profile(state: tauri::State<'_, SharedState>, app: AppHandle, id: String) -> Result<(), String> {
-    start_profile_inner(&app, &state, &id)
-}
-
-#[tauri::command]
-fn stop_profile(state: tauri::State<'_, SharedState>, app: AppHandle, id: String) -> Result<(), String> {
-    stop_profile_inner(&app, &state, &id)
-}
-
-#[tauri::command]
-fn restart_profile(state: tauri::State<'_, SharedState>, app: AppHandle, id: String) -> Result<(), String> {
-    stop_profile_inner(&app, &state, &id)?;
-    start_profile_inner(&app, &state, &id)
-}
-
-#[tauri::command]
-fn start_tag(state: tauri::State<'_, SharedState>, app: AppHandle, tag: String) -> Result<(), String> {
-    let ids = state.profile_ids_for_tag(&tag);
-    for id in ids {
-        let skip = state
-            .sessions
-            .lock()
-            .get(&id)
-            .map(|rt| rt.command_running.load(Ordering::SeqCst))
-            .unwrap_or(false);
-        if skip {
-            continue;
-        }
-        let _ = start_profile_inner(&app, &state, &id);
+// Lifecycle commands are async + spawn_blocking so the blocking inner functions
+// (PTY waits, foreground signals, broadcast idle) run on the async runtime's
+// blocking pool instead of Tauri's main thread. On macOS, blocking the main
+// thread also stalls the WebView compositor, so the spinner state set by JS
+// before `await invoke(...)` cannot become visible until the command returns.
+fn join_blocking_result(join: tauri::Result<Result<(), String>>) -> Result<(), String> {
+    match join {
+        Ok(inner) => inner,
+        Err(e) => Err(format!("background task failed: {e}")),
     }
-    Ok(())
 }
 
 #[tauri::command]
-fn stop_tag(state: tauri::State<'_, SharedState>, app: AppHandle, tag: String) -> Result<(), String> {
-    let ids = state.profile_ids_for_tag(&tag);
-    for id in ids {
-        let _ = stop_profile_inner(&app, &state, &id);
-    }
-    Ok(())
+async fn ensure_shell_session(
+    state: tauri::State<'_, SharedState>,
+    app: AppHandle,
+    id: String,
+) -> Result<(), String> {
+    let state: SharedState = state.inner().clone();
+    join_blocking_result(
+        tauri::async_runtime::spawn_blocking(move || ensure_shell_session_impl(&app, &state, &id))
+            .await,
+    )
 }
 
 #[tauri::command]
-fn restart_tag(state: tauri::State<'_, SharedState>, app: AppHandle, tag: String) -> Result<(), String> {
-    let ids = state.profile_ids_for_tag(&tag);
-    for id in ids {
-        let _ = stop_profile_inner(&app, &state, &id);
-        let _ = start_profile_inner(&app, &state, &id);
-    }
-    Ok(())
+async fn start_profile(
+    state: tauri::State<'_, SharedState>,
+    app: AppHandle,
+    id: String,
+) -> Result<(), String> {
+    let state: SharedState = state.inner().clone();
+    join_blocking_result(
+        tauri::async_runtime::spawn_blocking(move || start_profile_inner(&app, &state, &id)).await,
+    )
 }
 
 #[tauri::command]
-fn stop_all(state: tauri::State<'_, SharedState>, app: AppHandle) -> Result<(), String> {
-    let snaps: Vec<_> = {
-        let g = state.sessions.lock();
-        g.values()
-            .map(|rt| {
-                (
-                    rt.ctl_tx.clone(),
-                    Arc::clone(&rt.command_running),
-                    Arc::clone(&rt.watch_gate),
-                )
-            })
-            .collect()
-    };
-    for (ctl_tx, flag, gate) in snaps {
-        let _ = ctl_tx.send(PtyCtl::Stdin(vec![0x03]));
-        flag.store(false, Ordering::SeqCst);
-        *gate.lock() = None;
-    }
-    emit_profiles(&app, &state);
-    Ok(())
+async fn stop_profile(
+    state: tauri::State<'_, SharedState>,
+    app: AppHandle,
+    id: String,
+) -> Result<(), String> {
+    let state: SharedState = state.inner().clone();
+    join_blocking_result(
+        tauri::async_runtime::spawn_blocking(move || stop_profile_inner(&app, &state, &id)).await,
+    )
+}
+
+#[tauri::command]
+async fn restart_profile(
+    state: tauri::State<'_, SharedState>,
+    app: AppHandle,
+    id: String,
+) -> Result<(), String> {
+    let state: SharedState = state.inner().clone();
+    join_blocking_result(
+        tauri::async_runtime::spawn_blocking(move || {
+            stop_profile_inner(&app, &state, &id)?;
+            start_profile_inner(&app, &state, &id)
+        })
+        .await,
+    )
+}
+
+#[tauri::command]
+async fn start_tag(
+    state: tauri::State<'_, SharedState>,
+    app: AppHandle,
+    tag: String,
+) -> Result<(), String> {
+    let state: SharedState = state.inner().clone();
+    join_blocking_result(
+        tauri::async_runtime::spawn_blocking(move || {
+            let ids = state.profile_ids_for_tag(&tag);
+            for id in ids {
+                let skip = state
+                    .sessions
+                    .lock()
+                    .get(&id)
+                    .map(|rt| rt.command_running.load(Ordering::SeqCst))
+                    .unwrap_or(false);
+                if skip {
+                    continue;
+                }
+                let _ = start_profile_inner(&app, &state, &id);
+            }
+            Ok(())
+        })
+        .await,
+    )
+}
+
+#[tauri::command]
+async fn stop_tag(
+    state: tauri::State<'_, SharedState>,
+    app: AppHandle,
+    tag: String,
+) -> Result<(), String> {
+    let state: SharedState = state.inner().clone();
+    join_blocking_result(
+        tauri::async_runtime::spawn_blocking(move || {
+            let ids = state.profile_ids_for_tag(&tag);
+            for id in ids {
+                let _ = stop_profile_inner(&app, &state, &id);
+            }
+            Ok(())
+        })
+        .await,
+    )
+}
+
+#[tauri::command]
+async fn restart_tag(
+    state: tauri::State<'_, SharedState>,
+    app: AppHandle,
+    tag: String,
+) -> Result<(), String> {
+    let state: SharedState = state.inner().clone();
+    join_blocking_result(
+        tauri::async_runtime::spawn_blocking(move || {
+            let ids = state.profile_ids_for_tag(&tag);
+            for id in ids {
+                let _ = stop_profile_inner(&app, &state, &id);
+                let _ = start_profile_inner(&app, &state, &id);
+            }
+            Ok(())
+        })
+        .await,
+    )
+}
+
+#[tauri::command]
+async fn stop_all(
+    state: tauri::State<'_, SharedState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let state: SharedState = state.inner().clone();
+    join_blocking_result(
+        tauri::async_runtime::spawn_blocking(move || {
+            let snaps: Vec<_> = {
+                let g = state.sessions.lock();
+                g.values()
+                    .map(|rt| {
+                        (
+                            rt.ctl_tx.clone(),
+                            Arc::clone(&rt.master),
+                            rt.shell_pid,
+                            Arc::clone(&rt.command_running),
+                            Arc::clone(&rt.watch_gate),
+                        )
+                    })
+                    .collect()
+            };
+            for (ctl_tx, master, shell_pid, flag, gate) in snaps {
+                stop_session_foreground_interrupt(&ctl_tx, &master, shell_pid, &flag, &gate);
+            }
+            emit_profiles(&app, &state);
+            Ok(())
+        })
+        .await,
+    )
 }
 
 #[tauri::command]

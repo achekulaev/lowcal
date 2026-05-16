@@ -16,6 +16,27 @@ export function useTerminalSessionGlue(profiles: ProfileDto[], selectedId: strin
   const lastPtyOutputMsRef = useRef<Record<string, number>>({});
   const [ptyOutputActivityTick, setPtyOutputActivityTick] = useState(0);
   const ptyActivityBumpRafRef = useRef<number | null>(null);
+  /** Synchronous clears before REST restart — avoids a render behind incoming PTY output. */
+  const terminalClearHandlersRef = useRef(new Map<string, () => void>());
+
+  const registerTerminalClearHandler = useCallback(
+    (profileId: string, handler: (() => void) | null) => {
+      const m = terminalClearHandlersRef.current;
+      if (handler === null) {
+        m.delete(profileId);
+      } else {
+        m.set(profileId, handler);
+      }
+    },
+    [],
+  );
+
+  const clearTerminalBuffersForProfiles = useCallback((profileIds: readonly string[]) => {
+    const m = terminalClearHandlersRef.current;
+    for (const id of profileIds) {
+      m.get(id)?.();
+    }
+  }, []);
 
   const onTerminalBridgeOpen = useCallback((id: string) => {
     setBridgeReady((p) => ({ ...p, [id]: true }));
@@ -153,5 +174,7 @@ export function useTerminalSessionGlue(profiles: ProfileDto[], selectedId: strin
     ptyOutputActivityTick,
     onTerminalBridgeOpen,
     notePtyOutput,
+    registerTerminalClearHandler,
+    clearTerminalBuffersForProfiles,
   };
 }
