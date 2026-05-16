@@ -23,6 +23,24 @@ function ProfileTabRow(props: {
   onToggleRun: () => void;
 }) {
   const p = props.profile;
+  // Red dot only when:
+  //   1) the saved command is no longer running (`stopped`),
+  //   2) it was started via **Start** / `startCommandOnAppOpen` and **Stop** hasn't been
+  //      pressed since (`startedViaUi`),
+  //   3) and the captured exit code is non-zero.
+  // Manual typing in the PTY never sets `startedViaUi`, so user-typed commands that exit
+  // non-zero do not turn the dot red.
+  const failed =
+    p.status === "stopped" &&
+    p.startedViaUi &&
+    p.lastExitCode != null &&
+    p.lastExitCode !== 0;
+  const dotVariant = p.status === "running" ? "running" : failed ? "error" : "stopped";
+  const dotTitle = props.ptyOutputRecent
+    ? `${p.status} — receiving terminal output`
+    : failed
+      ? `Start command failed (exit code ${p.lastExitCode})`
+      : p.status;
   return (
     <div
       role="presentation"
@@ -38,15 +56,9 @@ function ProfileTabRow(props: {
       >
         <span
           className={`status-dot-wrap${props.ptyOutputRecent ? " status-dot-wrap--activity" : ""}`}
-          title={
-            props.ptyOutputRecent
-              ? `${p.status} — receiving terminal output`
-              : p.status
-          }
+          title={dotTitle}
         >
-          <span
-            className={`status-dot ${p.status === "running" ? "running" : "stopped"}`}
-          />
+          <span className={`status-dot ${dotVariant}`} />
           <span className="status-dot-wrap__ring" aria-hidden />
         </span>
         <div className="profile-meta">
@@ -63,7 +75,7 @@ function ProfileTabRow(props: {
                 </span>
               ))
             ) : (
-              <span className="tag-pill tag-pill--placeholder">(no tag)</span>
+              <span className="tag-pill tag-pill--placeholder">no tag</span>
             )}
           </div>
         </div>

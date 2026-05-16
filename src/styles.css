@@ -581,6 +581,14 @@ body {
   background: var(--status-dot-stopped);
 }
 
+/* Painted when the saved command was started via Start (or `startCommandOnAppOpen`),
+   exited on its own with a non-zero status, and **Stop** has not been pressed since.
+   Reuses the existing `--stopped` red so the dot matches the Stop button / error banners. */
+.status-dot.error {
+  background: var(--stopped);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--stopped) 55%, transparent);
+}
+
 .profile-meta {
   flex: 1;
   min-width: 0;

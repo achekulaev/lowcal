@@ -45,6 +45,17 @@ pub struct ProfileDto {
     #[serde(default)]
     pub start_command_on_app_open: bool,
     pub status: SessionStatus,
+    /// `true` while the most recent backend-initiated **Start** (sidebar / stage header /
+    /// `start_command_on_app_open`) is still the "live" intent — i.e. **Stop** has not been
+    /// pressed since. Drives the failure / red-dot indicator together with
+    /// `last_exit_code`. Manual typing in the PTY never sets this.
+    #[serde(default)]
+    pub started_via_ui: bool,
+    /// Exit code of the **last** Start-injected command, captured via an APC marker the
+    /// shell prints after the command (see `inject_profile_command`). `None` until the
+    /// first injected command exits, or while a Start/Stop is in progress.
+    #[serde(default)]
+    pub last_exit_code: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -126,6 +137,14 @@ pub struct SessionRuntime {
     shell_pid: i32,
     /// Watchdog ignores idle-looking PTYs until this instant has passed (startup / injection jitter).
     watch_gate: Arc<parking_lot::Mutex<Option<Instant>>>,
+    /// `true` from the moment **Start** (or `start_command_on_app_open`) injects its
+    /// command, until the matching **Stop** clears it. Combined with `command_running` and
+    /// `last_exit_code` this lets the UI distinguish "stopped because the user pressed
+    /// Stop" (gray) from "Start-injected command finished on its own and failed" (red).
+    started_via_ui: Arc<AtomicBool>,
+    /// Exit code captured from the APC marker printed after the Start-injected command.
+    /// `None` while a Start is in flight or after a Stop / Restart resets it.
+    last_exit_code: Arc<parking_lot::Mutex<Option<i32>>>,
 }
 
 pub struct AppStateInner {
@@ -244,25 +263,34 @@ impl AppStateInner {
         cfg
             .profiles
             .iter()
-            .map(|p| ProfileDto {
-                id: p.id.clone(),
-                display_name: p.display_name.clone(),
-                command: p.command.clone(),
-                cwd: p.cwd.clone(),
-                env: p.env.clone(),
-                tags: p.tags.clone(),
-                warm_on_start: p.warm_on_start,
-                start_command_on_app_open: p.start_command_on_app_open,
-                status: sessions
+            .map(|p| {
+                let (status, started_via_ui, last_exit_code) = sessions
                     .get(&p.id)
                     .map(|s| {
-                        if s.command_running.load(Ordering::SeqCst) {
+                        let running = s.command_running.load(Ordering::SeqCst);
+                        let started = s.started_via_ui.load(Ordering::SeqCst);
+                        let last = *s.last_exit_code.lock();
+                        let status = if running {
                             SessionStatus::Running
                         } else {
                             SessionStatus::Stopped
-                        }
+                        };
+                        (status, started, last)
                     })
-                    .unwrap_or(SessionStatus::Stopped),
+                    .unwrap_or((SessionStatus::Stopped, false, None));
+                ProfileDto {
+                    id: p.id.clone(),
+                    display_name: p.display_name.clone(),
+                    command: p.command.clone(),
+                    cwd: p.cwd.clone(),
+                    env: p.env.clone(),
+                    tags: p.tags.clone(),
+                    warm_on_start: p.warm_on_start,
+                    start_command_on_app_open: p.start_command_on_app_open,
+                    status,
+                    started_via_ui,
+                    last_exit_code,
+                }
             })
             .collect()
     }
@@ -638,11 +666,17 @@ fn stop_session_foreground_interrupt(
     shell_pid: i32,
     running_flag: &Arc<AtomicBool>,
     gate: &Arc<parking_lot::Mutex<Option<Instant>>>,
+    started_via_ui: &Arc<AtomicBool>,
+    last_exit_code: &Arc<parking_lot::Mutex<Option<i32>>>,
 ) {
     let _ = ctl_tx.send(PtyCtl::Stdin(vec![0x03]));
     poll_second_interrupt_if_foreground_busy(ctl_tx, master, shell_pid);
     running_flag.store(false, Ordering::SeqCst);
     *gate.lock() = None;
+    // Cleared so a Ctrl+C-induced 130 from the in-flight printf does NOT trigger the red
+    // failure dot; the user intentionally pressed Stop.
+    started_via_ui.store(false, Ordering::SeqCst);
+    *last_exit_code.lock() = None;
 }
 
 /// Wait until the login shell owns the TTY foreground (interactive), or timeout.
@@ -790,6 +824,75 @@ fn dispose_runtime_quiet(rt: SessionRuntime) {
     }
 }
 
+/// Streaming scanner for the APC exit-code marker that `inject_profile_command` appends
+/// after every Start-injected command:
+///
+/// ```text
+/// ESC _ L O W C A L _ R C = <digits> ESC \
+/// ```
+///
+/// `ESC _ ... ESC \` is APC (Application Program Command). xterm.js consumes APC sequences
+/// silently by default, so the marker is invisible in the rendered terminal — but the PTY
+/// reader thread sees the raw bytes and pulls the integer out here.
+///
+/// Owned by the reader thread; not thread-safe (single owner only).
+struct ExitCodeScanner {
+    pending: Vec<u8>,
+}
+
+const APC_PREFIX: &[u8] = b"\x1b_LOWCAL_RC=";
+const APC_SUFFIX: &[u8] = b"\x1b\\";
+/// Cap on the rolling tail kept across PTY reads. Comfortably larger than any plausible
+/// marker (prefix + ~10 digits + suffix is well under this) so a marker split across
+/// chunks always reassembles.
+const APC_BUF_CAP: usize = 1024;
+
+impl ExitCodeScanner {
+    fn new() -> Self {
+        Self { pending: Vec::new() }
+    }
+
+    /// Append `chunk` to the rolling tail, then drain every fully-formed marker. Returns
+    /// the **last** code seen in this call (most recent command), or `None` if no full
+    /// marker was completed yet.
+    fn feed(&mut self, chunk: &[u8]) -> Option<i32> {
+        self.pending.extend_from_slice(chunk);
+        let mut found = None;
+        loop {
+            let Some(start) = self
+                .pending
+                .windows(APC_PREFIX.len())
+                .position(|w| w == APC_PREFIX)
+            else {
+                break;
+            };
+            let after_prefix = start + APC_PREFIX.len();
+            let Some(end_off) = self.pending[after_prefix..]
+                .windows(APC_SUFFIX.len())
+                .position(|w| w == APC_SUFFIX)
+            else {
+                // Suffix not arrived yet — drop everything strictly before the prefix so the
+                // tail keeps growing only with bytes that could still complete this marker.
+                self.pending.drain(..start);
+                break;
+            };
+            let digits = &self.pending[after_prefix..after_prefix + end_off];
+            if let Ok(s) = std::str::from_utf8(digits) {
+                if let Ok(n) = s.parse::<i32>() {
+                    found = Some(n);
+                }
+            }
+            let total_end = after_prefix + end_off + APC_SUFFIX.len();
+            self.pending.drain(..total_end);
+        }
+        if self.pending.len() > APC_BUF_CAP {
+            let drop = self.pending.len() - APC_BUF_CAP;
+            self.pending.drain(..drop);
+        }
+        found
+    }
+}
+
 /// Spawn an interactive login shell for this profile (cwd + env from config). Idempotent.
 fn spawn_shell_session(app: &AppHandle, state: &SharedState, profile_id: &str) -> Result<(), String> {
     let profile = state
@@ -854,11 +957,21 @@ fn spawn_shell_session(app: &AppHandle, state: &SharedState, profile_id: &str) -
     let child_arc: Arc<Mutex<Option<Box<dyn Child + Send + Sync>>>> =
         Arc::new(Mutex::new(Some(child)));
 
+    // Created here (before the reader thread) so the reader can hold its own clone of
+    // `last_exit_code` and update it the moment the APC marker arrives — typically
+    // hundreds of ms before the watchdog flips `command_running` back to `false`.
+    let command_running = Arc::new(AtomicBool::new(false));
+    let watch_gate = Arc::new(parking_lot::Mutex::new(None));
+    let started_via_ui = Arc::new(AtomicBool::new(false));
+    let last_exit_code: Arc<parking_lot::Mutex<Option<i32>>> =
+        Arc::new(parking_lot::Mutex::new(None));
+
     let master_reader = Arc::clone(&master);
     let output_reader = output_tx.clone();
     let app_reader = app.clone();
     let state_reader = Arc::clone(state);
     let id_reader = profile_id.to_string();
+    let last_exit_code_reader = Arc::clone(&last_exit_code);
     std::thread::spawn(move || {
         let reader_result = { master_reader.lock().try_clone_reader() };
         let Ok(mut reader) = reader_result else {
@@ -870,11 +983,22 @@ fn spawn_shell_session(app: &AppHandle, state: &SharedState, profile_id: &str) -
             return;
         };
         let mut buf = [0u8; 8192];
+        let mut scanner = ExitCodeScanner::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let _ = output_reader.send(buf[..n].to_vec());
+                    let chunk = &buf[..n];
+                    let _ = output_reader.send(chunk.to_vec());
+                    // The APC marker is forwarded to xterm.js as-is (it consumes APC
+                    // silently). We also tap it here to populate `last_exit_code` so the
+                    // UI can paint a red dot the moment the Start-injected command exits
+                    // with a non-zero status. Emit a profile update so the dot can repaint
+                    // even if the watchdog hasn't yet cleared `command_running`.
+                    if let Some(code) = scanner.feed(chunk) {
+                        *last_exit_code_reader.lock() = Some(code);
+                        emit_profiles(&app_reader, &state_reader);
+                    }
                 }
                 Err(_) => break,
             }
@@ -919,9 +1043,6 @@ fn spawn_shell_session(app: &AppHandle, state: &SharedState, profile_id: &str) -
         }
     });
 
-    let command_running = Arc::new(AtomicBool::new(false));
-    let watch_gate = Arc::new(parking_lot::Mutex::new(None));
-
     #[cfg(unix)]
     spawn_command_watchdog(
         app.clone(),
@@ -941,6 +1062,8 @@ fn spawn_shell_session(app: &AppHandle, state: &SharedState, profile_id: &str) -
         master,
         shell_pid,
         watch_gate,
+        started_via_ui,
+        last_exit_code,
     };
 
     state
@@ -1014,6 +1137,15 @@ fn inject_profile_command(state: &SharedState, profile_id: &str, command: &str) 
 
     let mut payload: Vec<u8> = vec![0x03, b'\r', b'\n'];
     payload.extend_from_slice(command.as_bytes());
+    // Append an APC marker emitter on the same logical line:
+    //   ; printf '\033_LOWCAL_RC=%d\033\\' "$?"
+    // The PTY reader scans for `ESC _LOWCAL_RC=<digits> ESC \` and stores the integer in
+    // `SessionRuntime.last_exit_code`. xterm.js silently consumes APC, so the marker
+    // never renders. POSIX `$?` covers bash / zsh / dash / ksh / sh; **fish** uses
+    // `$status` and so won't trigger the red-dot indicator. The trailing `; ` is also
+    // skipped if the user's command ends with a `#` comment or `&` background terminator
+    // — those degrade to the existing gray dot.
+    payload.extend_from_slice(b"; printf '\\033_LOWCAL_RC=%d\\033\\\\' \"$?\"");
     payload.extend_from_slice(b"\r\n");
     ctl_tx
         .send(PtyCtl::Stdin(payload))
@@ -1106,6 +1238,12 @@ fn start_profile_inner(app: &AppHandle, state: &SharedState, id: &str) -> Result
 
     if let Some(rt) = state.sessions.lock().get(id) {
         *rt.watch_gate.lock() = Some(Instant::now());
+        // Clear before flipping `command_running` true so the UI never sees a stale
+        // previous exit code lingering at the start of a fresh run. `started_via_ui`
+        // covers both **Start** from the UI and `start_command_on_app_open` at app open
+        // (both paths land here via `start_profile_inner`).
+        *rt.last_exit_code.lock() = None;
+        rt.started_via_ui.store(true, Ordering::SeqCst);
         rt.command_running.store(true, Ordering::SeqCst);
     }
     emit_profiles(app, state);
@@ -1120,9 +1258,11 @@ fn stop_profile_inner(app: &AppHandle, state: &SharedState, id: &str) -> Result<
             rt.shell_pid,
             Arc::clone(&rt.command_running),
             Arc::clone(&rt.watch_gate),
+            Arc::clone(&rt.started_via_ui),
+            Arc::clone(&rt.last_exit_code),
         )
     });
-    let Some((ctl_tx, master, shell_pid, running_flag, gate)) = snap else {
+    let Some((ctl_tx, master, shell_pid, running_flag, gate, started, exit_code)) = snap else {
         return Ok(());
     };
     stop_session_foreground_interrupt(
@@ -1131,6 +1271,8 @@ fn stop_profile_inner(app: &AppHandle, state: &SharedState, id: &str) -> Result<
         shell_pid,
         &running_flag,
         &gate,
+        &started,
+        &exit_code,
     );
     emit_profiles(app, state);
     Ok(())
@@ -1307,12 +1449,16 @@ async fn stop_all(
                             rt.shell_pid,
                             Arc::clone(&rt.command_running),
                             Arc::clone(&rt.watch_gate),
+                            Arc::clone(&rt.started_via_ui),
+                            Arc::clone(&rt.last_exit_code),
                         )
                     })
                     .collect()
             };
-            for (ctl_tx, master, shell_pid, flag, gate) in snaps {
-                stop_session_foreground_interrupt(&ctl_tx, &master, shell_pid, &flag, &gate);
+            for (ctl_tx, master, shell_pid, flag, gate, started, exit_code) in snaps {
+                stop_session_foreground_interrupt(
+                    &ctl_tx, &master, shell_pid, &flag, &gate, &started, &exit_code,
+                );
             }
             emit_profiles(&app, &state);
             Ok(())
