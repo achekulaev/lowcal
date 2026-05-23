@@ -30,6 +30,44 @@ export function StartPendingSpinner() {
   );
 }
 
+/**
+ * Soft empty-state glyph for the right-pane empty cover (no profile selected).
+ * Rounded terminal frame with a `>_` prompt — anchors the eye centrally
+ * without competing with the headline below. Stroke + fill both use
+ * `currentColor` so the muted token from the cover takes effect.
+ */
+export function EmptyStateTerminalIcon() {
+  return (
+    <svg
+      className="terminal-empty-glyph"
+      width="40"
+      height="40"
+      viewBox="0 0 32 32"
+      aria-hidden
+    >
+      <rect
+        x="3.5"
+        y="6.5"
+        width="25"
+        height="19"
+        rx="3.25"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <path
+        d="M9.5 13.25l3.25 2.75-3.25 2.75"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <rect x="15" y="18.5" width="6.5" height="1.6" rx="0.7" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function NewTerminalIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>

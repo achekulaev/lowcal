@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { tagPillStyle } from "../../utils/tag-pills";
+import { onWindowDragMouseDown } from "../../utils/window-drag";
 import {
   SidebarTabRunIcon,
   StartPendingSpinner,
@@ -233,7 +234,11 @@ export function ProfileSidebar(props: {
   return (
     <aside className="sidebar" aria-label="Terminal tabs">
       <div className="sidebar-top">
-        <div className="sidebar-head">
+        <div
+          className="sidebar-head"
+          data-tauri-drag-region
+          onMouseDown={onWindowDragMouseDown}
+        >
           <h2>Terminals</h2>
           <div className="sidebar-head-actions">
             <button
@@ -292,6 +297,7 @@ export function ProfileSidebar(props: {
                     setSidebarFilterOpen(false);
                   }
                 }}
+                data-tauri-drag-region="false"
               />
             </div>
           ) : null}

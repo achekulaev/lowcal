@@ -9,6 +9,7 @@ import { ShellCommandSnippet } from "../shell-command-snippet";
 import type { ProfileDto } from "../../types/profile";
 import type { ProfileContextMenuState } from "../../types/ui";
 import { cwdPathForUi } from "../../utils/cwd-display";
+import { onWindowDragMouseDown } from "../../utils/window-drag";
 
 export function TerminalStageHeader(props: {
   selected: ProfileDto | null;
@@ -52,11 +53,17 @@ export function TerminalStageHeader(props: {
   const cwdTitle = cwdUnset ? undefined : resolvedCwdAbsolute ?? cwdRaw;
 
   return (
-    <header className="terminal-stage-header">
+    <header
+      className={`terminal-stage-header${selected ? "" : " terminal-stage-header--empty"}`}
+    >
       <div className="terminal-stage-head-main">
         {selected ? (
           <>
-            <div className="terminal-stage-top-row">
+            <div
+              className="terminal-stage-top-row"
+              data-tauri-drag-region
+              onMouseDown={onWindowDragMouseDown}
+            >
               <div className="terminal-stage-title-line">
                 <span className="terminal-stage-name">{selected.displayName}</span>
                 {cwdUnset ? (
@@ -154,7 +161,18 @@ export function TerminalStageHeader(props: {
             </div>
           </>
         ) : (
-          <span className="terminal-stage-placeholder">No profile selected</span>
+          // Empty (no-selection) header: structurally identical to the
+          // populated stack so the bottom border under the splitter stays
+          // aligned and the drag region fills the full top strip, but with
+          // no text content — the canonical empty-state message lives in
+          // the body cover (`terminal-work-area.tsx`). aria-hidden because
+          // there is nothing meaningful to announce here.
+          <span
+            className="terminal-stage-placeholder"
+            data-tauri-drag-region
+            onMouseDown={onWindowDragMouseDown}
+            aria-hidden="true"
+          />
         )}
       </div>
     </header>

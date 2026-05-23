@@ -206,13 +206,6 @@ function TagFolderRow(props: {
               {folder.label}
             </span>
           )}
-          <span
-            className={`tag-folder-count-pill${running > 0 ? " tag-folder-count-pill--active" : ""}`}
-            aria-label={countLabel}
-            title={countLabel}
-          >
-            {running}/{total}
-          </span>
         </button>
         {props.onStartTag || props.onStopTag || props.onRestartTag ? (
           <div className="tag-folder-actions" role="group" aria-label={`Bulk actions for ${folder.label}`}>
@@ -251,6 +244,13 @@ function TagFolderRow(props: {
             ) : null}
           </div>
         ) : null}
+        <span
+          className={`tag-folder-count-pill${running > 0 ? " tag-folder-count-pill--active" : ""}`}
+          aria-label={countLabel}
+          title={countLabel}
+        >
+          {running}/{total}
+        </span>
       </div>
       {expanded ? (
         <div

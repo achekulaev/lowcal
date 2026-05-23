@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "LowCal",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "identifier": "dev.lowcal.terminal-orchestrator",
   "build": {
     "frontendDist": "../dist",
@@ -17,7 +17,10 @@
         "height": 840,
         "minWidth": 1040,
         "minHeight": 520,
-        "resizable": true
+        "resizable": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 14, "y": 25 }
       }
     ],
     "security": {

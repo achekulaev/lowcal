@@ -1,5 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   useCallback,
@@ -173,12 +172,16 @@ export default function App() {
 
   const selected = profiles.find((p) => p.id === selectedId) ?? null;
 
+  // Only update `document.title` — deliberately *not* `getCurrentWindow().setTitle(...)`.
+  // On macOS, calling the native `setTitle` resets `trafficLightPosition` to default
+  // (Tauri GitHub issue #13044), making the traffic lights jump out of alignment with the
+  // sidebar header every time the user picks a different profile. Trade-off accepted: the
+  // OS-level Cmd-Tab / Mission Control / Dock-menu surfaces show the startup window title
+  // ("Lowcal Terminal Orchestrator" from `tauri.conf.json`) instead of the active profile
+  // name. The in-window UI still displays the selected profile in the right-pane header.
   useEffect(() => {
     const title = selected ? `Lowcal · ${selected.displayName}` : MAIN_WINDOW_TITLE_IDLE;
     document.title = title;
-    void getCurrentWindow().setTitle(title).catch(() => {
-      /* Plain Vite (`npm run dev`) has no native window */
-    });
   }, [selected?.displayName, selected?.id]);
 
   const [resolvedCwdAbsolute, setResolvedCwdAbsolute] = useState<string | null>(null);

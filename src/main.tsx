@@ -3,6 +3,10 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./styles.css";
 
+document.documentElement.dataset.platform = /Mac|iPhone|iPad/i.test(navigator.userAgent)
+  ? "macos"
+  : "other";
+
 /** macOS / WebKit: disable spellcheck and auto-correction on all text inputs (incl. xterm’s textarea). */
 function applyNoTextInputCorrections(el: HTMLInputElement | HTMLTextAreaElement) {
   el.spellcheck = false;

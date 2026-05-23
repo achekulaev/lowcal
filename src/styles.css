@@ -41,6 +41,9 @@
   --shadow-strong: 0 18px 48px rgba(0, 0, 0, 0.45);
   --shadow-medium: 0 12px 32px rgba(0, 0, 0, 0.5);
   --shadow-soft: 0 2px 10px rgba(0, 0, 0, 0.45);
+  /* Right-edge halo used by `.sidebar` so the panel reads as floating above
+     the terminal column. Directional (positive x-offset, zero y-offset). */
+  --shadow-sidebar: 3px 0 7px rgba(0, 0, 0, 0.35);
   --error-bg: rgba(248, 81, 73, 0.08);
   --error-fg: #ffb1a9;
   --invoke: #f85149;
@@ -83,6 +86,7 @@
   --shadow-strong: 0 18px 48px rgba(0, 0, 0, 0.45);
   --shadow-medium: 0 12px 32px rgba(0, 0, 0, 0.5);
   --shadow-soft: 0 2px 10px rgba(0, 0, 0, 0.45);
+  --shadow-sidebar: 3px 0 7px rgba(0, 0, 0, 0.35);
   --error-bg: rgba(248, 81, 73, 0.08);
   --error-fg: #ffb1a9;
   --invoke: #f85149;
@@ -126,6 +130,7 @@
   --shadow-strong: 0 18px 48px rgba(31, 35, 40, 0.18);
   --shadow-medium: 0 12px 32px rgba(31, 35, 40, 0.18);
   --shadow-soft: 0 2px 10px rgba(31, 35, 40, 0.12);
+  --shadow-sidebar: 2px 0 6px rgba(31, 35, 40, 0.10);
   --error-bg: rgba(207, 34, 46, 0.08);
   --error-fg: #a40e26;
   --invoke: #cf222e;
@@ -223,6 +228,11 @@ body {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  /* Lift the panel above the terminal column so its right-edge shadow paints
+     over (rather than under) the xterm canvas in the second grid column. */
+  position: relative;
+  z-index: 1;
+  box-shadow: var(--shadow-sidebar);
 }
 
 .sidebar-top {
@@ -246,23 +256,56 @@ body {
 .sidebar-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 0.5rem;
   min-height: var(--main-header-primary-row-min-height);
   padding: 0;
   box-sizing: border-box;
+  position: relative;
 }
 
+/*
+ * "TERMINALS" is absolutely centered inside the header row so the centering
+ * is independent of the (uneven) widths of the macOS traffic lights on the
+ * left and the search/stop-all/+ cluster on the right. The h2 is taken out
+ * of the flex flow; the remaining flex child (`.sidebar-head-actions`)
+ * sits flush-right via `justify-content: flex-end`. Window chrome is hidden
+ * by `titleBarStyle: "Overlay"` + `hiddenTitle: true` in
+ * `src-tauri/tauri.conf.json`; traffic lights overlay the top-left of the
+ * WebKit canvas at `trafficLightPosition` and don't need reserved h2 padding.
+ */
 .sidebar-head h2 {
-  flex: 1;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   margin: 0;
-  padding: 0 0 0 0.85rem;
+  padding: 0;
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   line-height: 1.25;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/*
+ * Make `data-tauri-drag-region` also opt into WebKit's `-webkit-app-region`
+ * drag mode, with `<button>` / `<input>` / `<a>` children opting back out.
+ * Tauri 2 routes drag events itself; these rules are a defensive fallback
+ * that also makes the intent legible in DevTools.
+ */
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+}
+
+[data-tauri-drag-region="false"],
+[data-tauri-drag-region] button,
+[data-tauri-drag-region] input,
+[data-tauri-drag-region] a {
+  -webkit-app-region: no-drag;
 }
 
 .sidebar-head-actions {
@@ -373,15 +416,34 @@ body {
   outline-offset: 2px;
 }
 
+/*
+ * Sized to match the macOS traffic-light buttons (~14px visible diameter) so
+ * the four controls in the "Terminals" header — close/min/max, "Terminals"
+ * caps, and search/stop-all/+ — read as one continuous row at the same
+ * visual scale. 1rem rather than 0.875rem because the 1px border + flat
+ * fill make the button face read a hair smaller than the gradient-shaded
+ * traffic lights at the same configured diameter.
+ */
 .sidebar-add-icon-btn-sm {
-  width: 1.55rem;
-  height: 1.55rem;
-  box-shadow: var(--shadow-soft);
+  width: 1rem;
+  height: 1rem;
+  box-shadow: none;
 }
 
 .sidebar-add-icon-btn-sm svg {
-  width: 14px;
-  height: 14px;
+  width: 10px;
+  height: 10px;
+}
+
+/*
+ * Sidebar-header buttons borrow the macOS traffic-light styling cue: the
+ * border is a slightly darker shade of the fill (instead of a neutral
+ * outline). Derived via `color-mix` from `--button-fill` so it tracks
+ * whichever fill the theme chose without needing a parallel border token.
+ * Hover/focus rules still win because they come later in source order.
+ */
+.sidebar-head-actions .sidebar-add-icon-btn {
+  border-color: color-mix(in srgb, var(--button-fill) 86%, #000 14%);
 }
 
 /* Sidebar header Stop-all action: tints to the stopped red on hover so it
@@ -475,8 +537,19 @@ body {
   border: 1px solid color-mix(in srgb, var(--muted-tint-border) 60%, transparent);
 }
 
+/* Sits at the right end of `.tag-folder-row` as a sibling of `.tag-folder-header`
+   and `.tag-folder-actions`. The header takes `flex: 1` and grows to consume
+   free space, so this pill is naturally pushed to the right edge of the row;
+   `margin-left: auto` is a belt-and-braces fallback for layouts where the
+   header is constrained. The right margin gives consistent breathing room
+   from the row's right edge (matching the header's own left/right padding).
+   `align-self: center` is required because the row sets `align-items: stretch`
+   for the header / actions to fill its height — without it the pill would
+   stretch vertically and round into a circle. */
 .tag-folder-count-pill {
   margin-left: auto;
+  margin-right: 0.5rem;
+  align-self: center;
   font-size: 0.66rem;
   font-variant-numeric: tabular-nums;
   padding: 0.08rem 0.4rem;
@@ -500,7 +573,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.2rem;
-  padding-right: 0.45rem;
+  margin-right: 0.4rem;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.1s ease;
@@ -737,6 +810,21 @@ body {
   color: var(--muted);
 }
 
+/*
+ * Empty-state header (no profile selected): no separator under the strip
+ * and the strip itself adopts the cover background so the top edge of the
+ * right pane dissolves into the empty body — no visible "white heading
+ * bar above a gray empty body" split. The header keeps its min-height
+ * (set on `.terminal-stage-placeholder`) so selecting / deselecting a
+ * profile doesn't shift the right pane vertically, and the sidebar's
+ * `.sidebar-top` separator stays visible because the sidebar is always
+ * populated.
+ */
+.terminal-stage-header--empty {
+  border-bottom-color: transparent;
+  background: var(--terminal-cover-bg);
+}
+
 .terminal-stage-head-main {
   flex: 1;
   min-width: 0;
@@ -828,8 +916,24 @@ body {
   justify-content: flex-end;
 }
 
+/*
+ * When no profile is selected, the placeholder is the *only* element inside
+ * `.terminal-stage-head-main`, and the entire right-pane header drag region
+ * collapses to whatever width its text happens to take. Stretch it to fill
+ * the parent flex column horizontally, and give it the same total height as
+ * the populated header (top row + gap + chip row) so the bottom border still
+ * aligns with the sidebar's `.sidebar-top` border under the splitter.
+ */
 .terminal-stage-placeholder {
-  align-self: center;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(
+    var(--main-header-primary-row-min-height) +
+    var(--main-header-stack-gap) +
+    var(--main-header-chip-row-min-height)
+  );
 }
 
 .terminal-cmd-snippet {
@@ -1034,6 +1138,53 @@ body {
   max-width: 26rem;
   text-align: center;
   padding: 0 1rem;
+}
+
+/*
+ * Right-pane empty state (no profile selected). Replaces the previous
+ * single-line "Pick a terminal tab on the left…" message with a three-tier
+ * stack — soft glyph, headline, body, hint — centered inside the existing
+ * `.terminal-cover` flex container. Tuned to follow native macOS empty-pane
+ * conventions (Mail / Notes): muted, calm, one canonical message.
+ */
+.terminal-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  max-width: 36ch;
+  padding: 0 1.25rem;
+  text-align: center;
+  color: var(--muted);
+}
+
+.terminal-empty-state__glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.25rem;
+  opacity: 0.55;
+  color: var(--muted);
+}
+
+.terminal-empty-state__headline {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.005em;
+}
+
+.terminal-empty-state__body {
+  font-size: 0.88rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.terminal-empty-state__hint {
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--muted) 75%, transparent);
+  line-height: 1.45;
 }
 
 .profile-row-wrap.tab-rail-profile.selected .profile-row {

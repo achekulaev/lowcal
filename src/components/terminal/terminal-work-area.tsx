@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { TERMINAL_FIRST_REVEAL_HOLD_MS } from "../../constants/terminal-ui";
 import type { ResolvedTheme } from "../../settings/global-settings";
 import type { ProfileDto } from "../../types/profile";
+import { EmptyStateTerminalIcon } from "../profile-icons";
 import { ProfileTerminalSession } from "./profile-terminal-session";
 
 export function TerminalWorkArea({
@@ -95,9 +97,26 @@ export function TerminalWorkArea({
     }
   }, [mountedShellFingerprint]);
 
-  const coverMessage = useMemo(() => {
+  // When `coverMessage` is a ReactNode the cover is rendered. The
+  // no-selection branch returns a layered empty-state (glyph + headline +
+  // body + hint); transient state branches stay as plain strings so they
+  // keep the original short-message look.
+  const coverMessage: ReactNode | null = useMemo(() => {
     if (!selectedId) {
-      return "Pick a terminal tab on the left, or use New terminal. Each profile is an interactive shell; use Start to run the saved command.";
+      return (
+        <div className="terminal-empty-state">
+          <div className="terminal-empty-state__glyph" aria-hidden="true">
+            <EmptyStateTerminalIcon />
+          </div>
+          <div className="terminal-empty-state__headline">No terminal selected</div>
+          <div className="terminal-empty-state__body">
+            Pick a tab on the left, or create a new one.
+          </div>
+          <div className="terminal-empty-state__hint">
+            Each profile is an interactive shell — press Start to run its saved command.
+          </div>
+        </div>
+      );
     }
     const sel = profiles.find((p) => p.id === selectedId);
     if (!sel) {
