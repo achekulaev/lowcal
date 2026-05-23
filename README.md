@@ -15,7 +15,7 @@ shell and the PTY layer (`portable-pty`) are cross-platform; Windows / Linux
 builds should work and just won't get the macOS-specific chrome polish.
 
 <p align="center">
-  <img src="app-icon-rounded.png" alt="Lowcal app icon" width="160" />
+  <img src="src-tauri/icons/128x128@2x.png" alt="Lowcal app icon" width="160" />
 </p>
 
 ---
