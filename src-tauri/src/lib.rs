@@ -1127,7 +1127,29 @@ fn apply_startup_profile_actions(app: &AppHandle, state: &SharedState) {
     }
 }
 
-fn inject_profile_command(state: &SharedState, profile_id: &str, command: &str) -> Result<(), String> {
+/// POSIX-safe single-quoted form of `s`: wraps in `'...'` and escapes embedded `'` as
+/// `'"'"'`. Used to splice an assigned cwd into the `cd '<cwd>' && <command>` prefix that
+/// `inject_profile_command` lays down so Start always lands in the configured folder.
+fn shell_single_quote(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for ch in s.chars() {
+        if ch == '\'' {
+            out.push_str("'\"'\"'");
+        } else {
+            out.push(ch);
+        }
+    }
+    out.push('\'');
+    out
+}
+
+fn inject_profile_command(
+    state: &SharedState,
+    profile_id: &str,
+    cwd: Option<&str>,
+    command: &str,
+) -> Result<(), String> {
     let ctl_tx = state
         .sessions
         .lock()
@@ -1136,6 +1158,22 @@ fn inject_profile_command(state: &SharedState, profile_id: &str, command: &str) 
         .ok_or_else(|| format!("no shell session for {profile_id}"))?;
 
     let mut payload: Vec<u8> = vec![0x03, b'\r', b'\n'];
+    // Prefix `cd '<assigned cwd>' && ` so Start always runs the saved command from the
+    // configured folder — the PTY is interactive, so the user may have `cd`'d away
+    // between Starts. `cd` to the same dir is a harmless no-op. If `cd` fails (folder
+    // gone), `&&` short-circuits so the user's command does NOT run in the wrong place;
+    // the failure renders the red dot via the trailing printf below. `~/` is expanded
+    // before quoting because a quoted `~` is treated literally by POSIX shells.
+    if let Some(raw) = cwd {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let expanded = expand_path(trimmed);
+            let quoted = shell_single_quote(&expanded.display().to_string());
+            payload.extend_from_slice(b"cd ");
+            payload.extend_from_slice(quoted.as_bytes());
+            payload.extend_from_slice(b" && ");
+        }
+    }
     payload.extend_from_slice(command.as_bytes());
     // Append an APC marker emitter on the same logical line:
     //   ; printf '\033_LOWCAL_RC=%d\033\\' "$?"
@@ -1163,24 +1201,58 @@ fn destroy_shell_session(app: &AppHandle, state: &SharedState, profile_id: &str)
 
 fn start_profile_inner(app: &AppHandle, state: &SharedState, id: &str) -> Result<(), String> {
     ensure_shell_session_impl(app, state, id)?;
-    let command = state
+    let (command, cwd) = state
         .config_snapshot()
         .profiles
         .iter()
         .find(|p| p.id == id)
-        .map(|p| p.command.clone())
+        .map(|p| (p.command.clone(), p.cwd.clone()))
         .ok_or_else(|| format!("unknown profile: {id}"))?;
+
+    // Auto-stop a still-running Start-injected command so a second Start is "Restart"-y
+    // by default: send Ctrl+C (and a second one if the foreground job is sticky), clear
+    // `command_running` / `started_via_ui` / `last_exit_code`. The PTY foreground
+    // ownership and quiet-window waits below then proceed against the just-stopped
+    // shell. `prepare_tty_for_saved_command` (further down) is still the backstop that
+    // kills any non-shell foreground that ignores Ctrl+C, so non-Start manual jobs the
+    // user typed in the PTY are also wiped before the saved command runs.
+    let was_running = state
+        .sessions
+        .lock()
+        .get(id)
+        .map(|rt| rt.command_running.load(Ordering::SeqCst))
+        .unwrap_or(false);
+    if was_running {
+        let snap = state.sessions.lock().get(id).map(|rt| {
+            (
+                rt.ctl_tx.clone(),
+                Arc::clone(&rt.master),
+                rt.shell_pid,
+                Arc::clone(&rt.command_running),
+                Arc::clone(&rt.watch_gate),
+                Arc::clone(&rt.started_via_ui),
+                Arc::clone(&rt.last_exit_code),
+            )
+        });
+        if let Some((ctl_tx, master, shell_pid, running_flag, gate, started, exit_code)) = snap {
+            stop_session_foreground_interrupt(
+                &ctl_tx,
+                &master,
+                shell_pid,
+                &running_flag,
+                &gate,
+                &started,
+                &exit_code,
+            );
+            emit_profiles(app, state);
+        }
+    }
 
     let (master, shell_pid) = {
         let g = state.sessions.lock();
         let Some(rt) = g.get(id) else {
             return Err("shell session missing".into());
         };
-        if rt.command_running.load(Ordering::SeqCst) {
-            return Err(
-                "the saved profile command is still marked running — wait for it to exit, press Stop, or try again shortly".into(),
-            );
-        }
         (Arc::clone(&rt.master), rt.shell_pid)
     };
 
@@ -1234,7 +1306,7 @@ fn start_profile_inner(app: &AppHandle, state: &SharedState, id: &str) -> Result
         prepare_tty_for_saved_command(rt);
     }
 
-    inject_profile_command(state, id, &command)?;
+    inject_profile_command(state, id, cwd.as_deref(), &command)?;
 
     if let Some(rt) = state.sessions.lock().get(id) {
         *rt.watch_gate.lock() = Some(Instant::now());

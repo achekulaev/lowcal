@@ -47,6 +47,10 @@
   --error-bg: rgba(248, 81, 73, 0.08);
   --error-fg: #ffb1a9;
   --invoke: #f85149;
+  /* Tint for `&&`, `||`, `;`, `|`, `&` in the command snippet so the eye can
+     pick out sub-command boundaries. Purple keeps it distinct from `--invoke`
+     (red, the program-name accent) and `--text` (white, arguments). */
+  --cmd-separator: #c08cff;
   --muted-tint-bg: rgba(139, 148, 158, 0.1);
   --muted-tint-bg-hover: rgba(139, 148, 158, 0.16);
   --muted-tint-border: rgba(139, 148, 158, 0.45);
@@ -90,6 +94,7 @@
   --error-bg: rgba(248, 81, 73, 0.08);
   --error-fg: #ffb1a9;
   --invoke: #f85149;
+  --cmd-separator: #c08cff;
   --muted-tint-bg: rgba(139, 148, 158, 0.1);
   --muted-tint-bg-hover: rgba(139, 148, 158, 0.16);
   --muted-tint-border: rgba(139, 148, 158, 0.45);
@@ -134,6 +139,7 @@
   --error-bg: rgba(207, 34, 46, 0.08);
   --error-fg: #a40e26;
   --invoke: #cf222e;
+  --cmd-separator: #8250df;
   --muted-tint-bg: rgba(101, 109, 118, 0.08);
   --muted-tint-bg-hover: rgba(101, 109, 118, 0.14);
   --muted-tint-border: rgba(101, 109, 118, 0.35);
@@ -971,6 +977,15 @@ body {
   font-weight: 500;
 }
 
+/* `&&`, `||`, `;`, `|`, `&` — sub-command dividers. Tinted (purple) so the
+   eye can pick out command boundaries; `font-weight: 500` matches the
+   invoke accent so the snippet reads as three weighted bands instead of
+   one heavy word per sub-command. */
+.terminal-cmd-snippet-separator {
+  color: var(--cmd-separator);
+  font-weight: 500;
+}
+
 .terminal-cmd-snippet-tail {
   color: var(--text);
 }
@@ -1103,6 +1118,14 @@ body {
   flex: 1;
   min-height: 0;
   background: var(--bg);
+  /*
+   * Contain descendant z-indexes (notably `.terminal-cover` at z:2) so they
+   * can't escape past `.sidebar`'s z:1 and clip the sidebar's right-edge
+   * shadow (`--shadow-sidebar`) where the cover overlaps the second grid
+   * column. Without this, the sidebar shadow disappears across the body
+   * region whenever the empty-state cover (or any cover overlay) is shown.
+   */
+  isolation: isolate;
 }
 
 .terminal-stack-layers {

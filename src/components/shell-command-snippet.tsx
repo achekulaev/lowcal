@@ -1,5 +1,6 @@
 export type ShellCommandPart =
   | { kind: "invoke"; value: string }
+  | { kind: "separator"; value: string }
   | { kind: "text"; value: string };
 
 const SEPARATOR_CHARS = new Set([";", "|", "&"]);
@@ -72,22 +73,23 @@ export function parseShellCommandParts(command: string): ShellCommandPart[] {
       continue;
     }
 
-    // Sequencing operators (outside quotes) — emit verbatim and arm
-    // `expectInvoke` so the next non-whitespace token becomes the invoke.
+    // Sequencing operators (outside quotes) — emit as `separator` so the
+    // renderer can tint them distinctly, and arm `expectInvoke` so the
+    // next non-whitespace token becomes the invoke.
     if (t.startsWith("&&", i)) {
-      push("text", "&&");
+      push("separator", "&&");
       expectInvoke = true;
       i += 2;
       continue;
     }
     if (t.startsWith("||", i)) {
-      push("text", "||");
+      push("separator", "||");
       expectInvoke = true;
       i += 2;
       continue;
     }
     if (SEPARATOR_CHARS.has(ch)) {
-      push("text", ch);
+      push("separator", ch);
       expectInvoke = true;
       i++;
       continue;
@@ -121,22 +123,22 @@ export function parseShellCommandParts(command: string): ShellCommandPart[] {
   return parts;
 }
 
+const PART_CLASS: Record<ShellCommandPart["kind"], string> = {
+  invoke: "terminal-cmd-snippet-invoke",
+  separator: "terminal-cmd-snippet-separator",
+  text: "terminal-cmd-snippet-tail",
+};
+
 export function ShellCommandSnippet({ command }: { command: string }) {
   const parts = parseShellCommandParts(command);
   return (
     <pre className="terminal-cmd-snippet">
       <code>
-        {parts.map((part, idx) =>
-          part.kind === "invoke" ? (
-            <span key={idx} className="terminal-cmd-snippet-invoke">
-              {part.value}
-            </span>
-          ) : (
-            <span key={idx} className="terminal-cmd-snippet-tail">
-              {part.value}
-            </span>
-          ),
-        )}
+        {parts.map((part, idx) => (
+          <span key={idx} className={PART_CLASS[part.kind]}>
+            {part.value}
+          </span>
+        ))}
       </code>
     </pre>
   );
