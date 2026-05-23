@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
-    <title>Tag pill color preview — IT infra words A–Z</title>
+    <title>Tag pill color preview — brand palette + hash fallback (dark / light)</title>
     <style>
       :root {
         color-scheme: dark;
@@ -10,6 +10,15 @@
         --panel-bg: #161922;
         --muted: #8a90a2;
         --text: #d8dbe5;
+        --border: #232838;
+      }
+      html[data-theme="light"] {
+        color-scheme: light;
+        --app-bg: #f6f6f6;
+        --panel-bg: #ffffff;
+        --muted: #6a6f7d;
+        --text: #1d1d1f;
+        --border: #ebebeb;
       }
       html,
       body {
@@ -21,8 +30,38 @@
           -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
           Arial, sans-serif;
       }
+      .theme-toggle {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: var(--app-bg);
+        padding: 12px 28px 8px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        border-bottom: 1px solid var(--border);
+      }
+      .theme-toggle .label {
+        font-size: 12px;
+        color: var(--muted);
+        margin-right: 4px;
+      }
+      .theme-toggle button {
+        font: inherit;
+        font-size: 12px;
+        background: transparent;
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 4px 10px;
+        cursor: pointer;
+      }
+      .theme-toggle button.active {
+        background: var(--panel-bg);
+        border-color: color-mix(in srgb, var(--text) 30%, transparent);
+      }
       header {
-        padding: 24px 28px 8px;
+        padding: 24px 28px 4px;
       }
       header h1 {
         margin: 0 0 6px;
@@ -30,21 +69,18 @@
         font-weight: 600;
       }
       header p {
-        margin: 0;
+        margin: 6px 0 0;
         font-size: 13px;
         color: var(--muted);
-        max-width: 70ch;
-        line-height: 1.45;
+        max-width: 78ch;
+        line-height: 1.5;
       }
       .panel {
-        margin: 16px 28px 28px;
+        margin: 16px 28px;
         padding: 18px 20px;
         background: var(--panel-bg);
-        border: 1px solid #232838;
+        border: 1px solid var(--border);
         border-radius: 10px;
-      }
-      .panel + .panel {
-        margin-top: 0;
       }
       h2 {
         margin: 0 0 12px;
@@ -53,6 +89,18 @@
         color: var(--muted);
         letter-spacing: 0.04em;
         text-transform: uppercase;
+      }
+      .panel h3 {
+        margin: 18px 0 8px;
+        font-size: 11.5px;
+        font-weight: 600;
+        color: var(--muted);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        opacity: 0.85;
+      }
+      .panel h3:first-of-type {
+        margin-top: 0;
       }
       .row {
         display: flex;
@@ -69,35 +117,36 @@
         letter-spacing: 0.01em;
         white-space: nowrap;
       }
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-        gap: 10px 14px;
-      }
-      .grid .cell {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        font-size: 12px;
-        color: var(--muted);
-      }
-      .grid .cell .letter {
-        width: 1.1em;
-        font-variant-numeric: tabular-nums;
-        color: #5e6478;
-      }
       .swatch-row {
         display: grid;
-        grid-template-columns: repeat(26, 1fr);
+        grid-template-columns: repeat(36, 1fr);
         gap: 2px;
-        margin-top: 8px;
+        margin-top: 10px;
       }
       .swatch {
-        height: 28px;
-        border-radius: 4px;
+        height: 24px;
+        border-radius: 3px;
+      }
+      .case-row {
+        display: grid;
+        grid-template-columns: minmax(120px, 220px) 1fr;
+        gap: 14px 16px;
+        align-items: center;
+      }
+      .case-row .label {
+        font-family:
+          ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+          monospace;
+        font-size: 11.5px;
+        color: var(--muted);
+      }
+      .stat {
+        margin-top: 12px;
+        font-size: 11.5px;
+        color: var(--muted);
       }
       footer {
-        margin: 0 28px 28px;
+        margin: 8px 28px 28px;
         font-size: 12px;
         color: var(--muted);
       }
@@ -105,7 +154,7 @@
         font-family:
           ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono",
           monospace;
-        background: #1d2230;
+        background: color-mix(in srgb, var(--text) 8%, transparent);
         padding: 1px 6px;
         border-radius: 4px;
         font-size: 11.5px;
@@ -113,52 +162,38 @@
     </style>
   </head>
   <body>
+    <div class="theme-toggle" role="group" aria-label="Theme">
+      <span class="label">Theme</span>
+      <button type="button" data-theme-btn="dark" class="active">Dark</button>
+      <button type="button" data-theme-btn="light">Light</button>
+      <button type="button" data-theme-btn="split">Side-by-side</button>
+    </div>
     <header>
-      <h1>tagPillStyle() — IT infra words, one per letter</h1>
+      <h1>tagPillStyle() — brand palette + hash fallback (dark / light)</h1>
       <p>
-        Generated with the exact function from
-        <code>src/utils/tag-pills.ts</code>. Hues are now picked from
-        <strong>allowed bands</strong> only — purples/magentas
-        (<code>260°–330°</code>) are skipped and the blue band
-        (<code>200°–260°</code>) is widened to absorb their mass. A separate
-        hash word makes roughly <strong>1 in 5</strong> tags render as a
-        near-neutral grey (saturation <code>3–8%</code>) so the row feels less
-        uniformly tinted.
+        Two-tier resolution. First, a curated
+        <strong>brand palette</strong> with ~250 dev/infra entries is consulted
+        with case- and hyphen/underscore/whitespace-insensitive lookup
+        (<code>back-end</code>, <code>Back End</code>, <code>BACKEND</code> →
+        same key). Unmatched tags fall through to the
+        <strong>hash-based</strong> path with curated hue bands (purples
+        skipped, blues widened) and a ~20% chance of rendering as a near-neutral
+        grey. Iconic brand purples (Terraform, Vite, Bootstrap, PHP, …) are
+        allowed in the override only. The <code>theme</code> parameter
+        (default <code>"dark"</code>) selects the lightness ramp — use the
+        buttons above to flip.
       </p>
     </header>
 
-    <section class="panel">
-      <h2>Pills — non-highlighted</h2>
-      <div class="row" id="pills-normal"></div>
-    </section>
-
-    <section class="panel">
-      <h2>Pills — highlighted</h2>
-      <div class="row" id="pills-highlighted"></div>
-    </section>
-
-    <section class="panel">
-      <h2>Grid — letter → word</h2>
-      <div class="grid" id="grid"></div>
-    </section>
-
-    <section class="panel">
-      <h2>Hue-only swatches (background color, no border / text)</h2>
-      <div class="swatch-row" id="swatches"></div>
-    </section>
-
-    <section class="panel">
-      <h2>Larger sample — 100+ infra words (grey distribution check)</h2>
-      <div class="row" id="pills-large"></div>
-    </section>
-
     <footer>
-      Function ported verbatim to JS in this file — same FNV-1a 32-bit hash,
-      same mix32 avalanche, same multiply-spread for hue.
+      Self-contained preview — the palette and algorithm are inlined below so
+      this file renders without depending on the production TS build. When
+      <code>src/utils/tag-pills.ts</code> changes, refresh the JS palette
+      inside this HTML to match.
     </footer>
 
     <script>
-      // --- Ported verbatim from src/utils/tag-pills.ts ---------------------
+      // ── 1. Hash core ─────────────────────────────────────────────────────
       function fnv1a32(str) {
         let h = 2166136261;
         for (let i = 0; i < str.length; i++) {
@@ -179,16 +214,14 @@
       function tagWord(s, salt) {
         return mix32(fnv1a32(`${salt}\0${s}`));
       }
-      // Allowed hue bands — purples/magentas (260–330) intentionally excluded.
-      // Blue band 200–260 is widened to absorb what would have been purple pills.
       const HUE_BANDS = [
-        [350, 390], // red → warm (40°), wraps past 360°
-        [30, 60], // orange (30°)
-        [60, 95], // yellow / chartreuse (35°)
-        [95, 160], // greens (65°)
-        [160, 200], // teal / cyan (40°)
-        [200, 260], // blues (60°) — widened to replace purples
-        [330, 350], // pink / rose (20°)
+        [350, 390],
+        [30, 60],
+        [60, 95],
+        [95, 160],
+        [160, 200],
+        [200, 260],
+        [330, 350],
       ];
       const HUE_BAND_WIDTHS = HUE_BANDS.map(([a, b]) => b - a);
       const HUE_TOTAL_WIDTH = HUE_BAND_WIDTHS.reduce((s, w) => s + w, 0);
@@ -201,9 +234,321 @@
         }
         return 0;
       }
-      function tagPillStyle(tag, highlighted) {
+      function normalizeBrandKey(tag) {
+        return tag.toLowerCase().replace(/[^a-z0-9+#]/g, "");
+      }
+      function H(h, s = 30) {
+        return { kind: "hue", h, s };
+      }
+      const BLACK = { kind: "black" };
+      const GREY = { kind: "grey" };
+
+      // ── 2. Brand palette — grouped by category for the preview UI ────────
+      const BRAND_CATEGORIES = [
+        {
+          name: "Languages, runtimes, shells",
+          entries: {
+            assembly: BLACK, asm: BLACK, bash: BLACK,
+            c: H(218, 28), "c#": H(248, 32), "c++": H(214, 30),
+            clojure: H(100, 32), cobol: GREY, cpp: H(214, 30),
+            crystal: H(220, 32), csharp: H(248, 32), d: H(358, 30),
+            dart: H(200, 32), delphi: H(0, 30), dotnet: H(248, 30),
+            elixir: H(260, 30), elm: H(195, 32), erlang: H(350, 30),
+            "f#": H(230, 30), fish: H(18, 32), fortran: GREY,
+            fsharp: H(230, 30), go: H(188, 34), golang: H(188, 34),
+            groovy: H(100, 28), haskell: H(260, 28), html: H(15, 32),
+            java: H(16, 32), javascript: H(50, 34), js: H(50, 34),
+            julia: H(250, 30), jvm: H(16, 28), kotlin: H(24, 32),
+            lisp: H(125, 30), lua: H(215, 30), net: H(248, 30),
+            nim: H(48, 32), node: H(102, 32), nodejs: H(102, 32),
+            objectivec: H(198, 30), ocaml: H(28, 32), pascal: H(28, 30),
+            perl: H(215, 28), php: H(250, 30), powershell: H(215, 32),
+            pwsh: H(215, 32), python: H(215, 34), py: H(215, 34),
+            r: H(192, 32), racket: H(16, 30), ruby: H(354, 36),
+            rust: H(16, 32), scala: H(0, 32), sh: GREY, shell: GREY,
+            swift: H(22, 32), terminal: GREY, ts: H(213, 32),
+            typescript: H(213, 32), v: H(218, 30), vb: H(215, 30),
+            vbnet: H(215, 30), zig: H(36, 32), zsh: GREY,
+          },
+        },
+        {
+          name: "Frontend frameworks & libs",
+          entries: {
+            angular: H(350, 32), astro: H(18, 32), backbone: H(210, 28),
+            bootstrap: H(268, 30), chakra: H(178, 30), ember: H(15, 30),
+            gatsby: H(270, 30), jquery: H(210, 28), material: H(210, 30),
+            materialui: H(210, 30), mui: H(210, 30), next: BLACK,
+            nextjs: BLACK, nuxt: H(138, 30), preact: H(252, 30),
+            react: H(192, 34), reactnative: H(192, 34), remix: H(215, 32),
+            sass: H(335, 30), scss: H(335, 30), shadcn: BLACK,
+            solid: H(215, 30), solidjs: H(215, 30),
+            styledcomponents: H(335, 30), svelte: H(14, 32),
+            sveltekit: H(14, 32), tailwind: H(188, 32),
+            tailwindcss: H(188, 32), vue: H(138, 32), vuejs: H(138, 32),
+          },
+        },
+        {
+          name: "Backend frameworks",
+          entries: {
+            actix: H(16, 30), asp: H(248, 30), aspnet: H(248, 30),
+            django: H(140, 28), echo: H(210, 28), express: GREY,
+            expressjs: GREY, fastapi: H(168, 32), fastify: BLACK,
+            fiber: H(210, 30), flask: BLACK, gin: H(170, 30),
+            hapi: GREY, koa: GREY, laravel: H(0, 32),
+            nestjs: H(350, 32), phoenix: H(14, 32), rails: H(354, 32),
+            rocket: H(0, 32), ror: H(354, 32), rubyonrails: H(354, 32),
+            spring: H(110, 32), springboot: H(110, 32),
+            strapi: H(248, 30), symfony: GREY,
+          },
+        },
+        {
+          name: "Databases",
+          entries: {
+            bigquery: H(215, 32), cassandra: H(210, 28),
+            clickhouse: H(48, 32), cockroach: H(210, 30),
+            cockroachdb: H(210, 30), couchbase: H(0, 30),
+            couchdb: H(0, 28), database: GREY, databases: GREY,
+            db: GREY, dbms: GREY, duckdb: H(46, 32),
+            dynamo: H(215, 32), dynamodb: H(215, 32),
+            elastic: H(170, 32), elasticsearch: H(170, 32),
+            firebase: H(35, 34), firestore: H(35, 34),
+            influxdb: H(218, 30), mariadb: H(195, 30),
+            memcached: H(95, 28), mongo: H(100, 32),
+            mongodb: H(100, 32), mssql: H(0, 30), mysql: H(28, 32),
+            neo4j: H(200, 32), nosql: GREY, oracle: H(0, 32),
+            oracledb: H(0, 32), planetscale: BLACK,
+            postgres: H(210, 32), postgresql: H(210, 32),
+            prisma: H(220, 30), psql: H(210, 32), redis: H(358, 36),
+            rocksdb: GREY, snowflake: H(190, 34), sql: GREY,
+            sqlite: H(210, 30), sqlserver: H(0, 30),
+            supabase: H(140, 32), timescale: H(0, 28),
+            timescaledb: H(0, 28),
+          },
+        },
+        {
+          name: "Cloud providers",
+          entries: {
+            akamai: H(0, 30), alibaba: H(15, 32), amazon: H(32, 36),
+            apple: GREY, aws: H(32, 36), azure: H(205, 32),
+            cloud: GREY, cloudflare: H(25, 34),
+            digitalocean: H(215, 32), ec2: H(32, 32),
+            fastly: H(0, 32), fly: H(245, 28), flyio: H(245, 28),
+            gcp: H(218, 34), google: H(218, 34),
+            googlecloud: H(218, 34), heroku: H(248, 28),
+            ibm: H(218, 30), ibmcloud: H(218, 30),
+            lambda: H(32, 32), linode: H(95, 30),
+            microsoft: H(205, 32), netlify: H(175, 32),
+            ovh: H(215, 30), rds: H(215, 30), render: H(95, 30),
+            s3: H(32, 32), vercel: BLACK, vultr: H(218, 30),
+          },
+        },
+        {
+          name: "DevOps / orchestration / CI / VCS",
+          entries: {
+            ansible: H(0, 32), argo: H(35, 32), argocd: H(35, 32),
+            bitbucket: H(215, 32), buildkite: H(95, 30),
+            chef: H(15, 30), circleci: BLACK, consul: H(340, 30),
+            docker: H(205, 34), envoy: H(250, 28), flux: H(218, 30),
+            git: H(14, 34), github: BLACK, gitlab: H(15, 32),
+            helm: H(215, 32), istio: H(195, 32), jenkins: H(215, 28),
+            k3s: H(217, 28), k8s: H(217, 32), kong: H(0, 32),
+            kubernetes: H(217, 32), linkerd: H(110, 32),
+            nomad: H(110, 30), openshift: H(0, 34), packer: H(220, 28),
+            podman: H(248, 28), portainer: H(195, 32),
+            pulumi: H(245, 30), puppet: H(15, 30), rancher: H(190, 32),
+            saltstack: H(95, 30), spinnaker: H(218, 30),
+            tekton: H(218, 28), terraform: H(258, 30), vault: H(45, 34),
+          },
+        },
+        {
+          name: "Networking / web servers",
+          entries: {
+            apache: H(0, 32), bind: H(210, 28), caddy: H(195, 30),
+            dns: GREY, firewall: H(0, 32), haproxy: H(140, 30),
+            iptables: GREY, ldap: GREY, nginx: H(125, 32), ntp: GREY,
+            pfsense: H(0, 28), proxy: GREY, route53: H(248, 28),
+            ssh: BLACK, ssl: H(45, 32), tls: H(45, 32),
+            traefik: H(215, 30), vlan: GREY, vpc: GREY, vpn: GREY,
+            waf: H(0, 30), wireguard: H(0, 32),
+          },
+        },
+        {
+          name: "Monitoring / observability",
+          entries: {
+            datadog: H(248, 28), elk: H(170, 30), fluentd: H(95, 30),
+            grafana: H(25, 34), jaeger: H(190, 30), kibana: H(335, 30),
+            logstash: H(95, 28), loki: H(45, 32), nagios: H(95, 30),
+            newrelic: H(95, 32), opentelemetry: H(218, 30),
+            opsgenie: H(210, 30), otel: H(218, 30),
+            pagerduty: H(95, 32), prometheus: H(15, 32),
+            sentry: H(335, 28), splunk: H(95, 30), statsd: GREY,
+            tempo: H(45, 30), vector: H(210, 28),
+            victoriametrics: H(0, 30), zabbix: H(0, 30),
+            zipkin: H(218, 28),
+          },
+        },
+        {
+          name: "Operating systems / distros",
+          entries: {
+            alpine: H(210, 28), arch: H(195, 32), archlinux: H(195, 32),
+            centos: H(248, 28), darwin: GREY, debian: H(340, 30),
+            fedora: H(215, 32), freebsd: H(0, 30), ios: GREY,
+            ipados: GREY, linux: BLACK, macos: GREY,
+            manjaro: H(95, 32), opensuse: H(95, 30), osx: GREY,
+            redhat: H(358, 36), rhel: H(358, 36), suse: H(95, 30),
+            tux: BLACK, ubuntu: H(18, 32), unix: GREY,
+            windows: H(205, 32),
+          },
+        },
+        {
+          name: "Tooling — editors, package managers, build tools",
+          entries: {
+            babel: H(48, 32), cargo: H(16, 30), code: H(210, 30),
+            composer: H(245, 28), cypress: H(170, 28),
+            emacs: H(258, 28), eslint: H(248, 30), gradle: H(95, 30),
+            intellij: H(335, 30), jest: H(0, 30),
+            jetbrains: H(335, 28), maven: H(0, 30), mocha: H(15, 30),
+            neovim: H(95, 32), npm: H(0, 32), nvim: H(95, 32),
+            pip: H(215, 28), playwright: H(95, 30), pnpm: H(35, 32),
+            prettier: H(18, 30), puppeteer: H(170, 28),
+            pypi: H(215, 28), selenium: H(95, 28), sublime: H(35, 32),
+            vim: H(95, 32), vite: H(270, 30), vscode: H(210, 30),
+            webpack: H(198, 32), yarn: H(200, 32),
+          },
+        },
+        {
+          name: "General concepts",
+          entries: {
+            android: H(105, 32), api: H(218, 30), auth: H(45, 30),
+            backend: H(15, 28), batch: H(45, 30), build: H(45, 30),
+            cache: H(0, 28), cd: H(95, 30), ci: H(95, 30),
+            cicd: H(95, 30), client: GREY, compute: GREY, cron: GREY,
+            desktop: GREY, dev: H(95, 28), development: H(95, 28),
+            deploy: H(35, 32), deployment: H(35, 32), e2e: H(245, 28),
+            fe: H(210, 30), frontend: H(210, 32),
+            fullstack: H(245, 30), iam: H(45, 30), infra: GREY,
+            infrastructure: GREY, jwt: H(45, 32), job: H(45, 28),
+            microservice: H(218, 30), microservices: H(218, 30),
+            mobile: H(215, 30), monolith: GREY, network: GREY,
+            oauth: H(218, 30), obsidian: H(280, 28),
+            pipeline: H(215, 28), prod: H(0, 32), production: H(0, 32),
+            qa: H(45, 32), queue: H(45, 28), release: H(95, 30),
+            review: H(45, 30), saml: H(218, 30), security: H(0, 32),
+            server: GREY, service: H(218, 28), sso: H(218, 30),
+            staging: H(45, 30), storage: GREY, test: H(95, 28),
+            testing: H(95, 28), ui: H(190, 30), ux: H(190, 30),
+            web: H(210, 28), worker: H(45, 28),
+          },
+        },
+      ];
+
+      const BRAND_PALETTE = Object.fromEntries(
+        BRAND_CATEGORIES.flatMap((c) => Object.entries(c.entries)),
+      );
+
+      // ── 3. Per-theme ramps ───────────────────────────────────────────────
+      const DARK_RAMP = {
+        brandHueBgL: [25, 30],
+        brandHueFgL: 78,
+        brandHueBorderShift: [12, 18],
+        brandHueBorderClamp: 44,
+        brandBlack: { bgL: [10, 14], fgL: 76, borderL: [26, 36] },
+        brandGrey: { bgL: [25, 30], fgL: 78, borderL: [37, 46] },
+        brandWhite: { bgL: [82, 78], fgL: 16, borderL: [68, 60] },
+        hashBgBase: 22, hashBgJitter: 9, hashHighlightBgDelta: 5,
+        hashFgBase: 70, hashFgJitter: 14,
+        hashBorderShift: [10, 18], hashBorderClamp: 44,
+        hashBorderDirection: "lighter",
+        hashColoredFgSatCap: 34, hashGreyFgSatCap: 10,
+      };
+      const LIGHT_RAMP = {
+        brandHueBgL: [90, 86],
+        brandHueFgL: 30,
+        brandHueBorderShift: [-16, -22],
+        brandHueBorderClamp: 60,
+        brandBlack: { bgL: [22, 18], fgL: 90, borderL: [38, 32] },
+        brandGrey: { bgL: [90, 86], fgL: 28, borderL: [72, 66] },
+        brandWhite: { bgL: [96, 93], fgL: 24, borderL: [78, 70] },
+        hashBgBase: 85, hashBgJitter: 8, hashHighlightBgDelta: -4,
+        hashFgBase: 26, hashFgJitter: 12,
+        hashBorderShift: [-14, -22], hashBorderClamp: 60,
+        hashBorderDirection: "darker",
+        hashColoredFgSatCap: 46, hashGreyFgSatCap: 16,
+      };
+      function rampFor(theme) {
+        return theme === "light" ? LIGHT_RAMP : DARK_RAMP;
+      }
+
+      // ── 4. Pill style — brand override, otherwise hash fallback ──────────
+      function brandPillStyle(style, highlighted, ramp) {
+        switch (style.kind) {
+          case "black": {
+            const [bg, bgHi] = ramp.brandBlack.bgL;
+            const [bd, bdHi] = ramp.brandBlack.borderL;
+            const useBg = highlighted ? bgHi : bg;
+            const useBd = highlighted ? bdHi : bd;
+            return {
+              background: `hsl(220 6% ${useBg}%)`,
+              color: `hsl(220 6% ${ramp.brandBlack.fgL}%)`,
+              border: `1px solid hsl(220 10% ${useBd}%)`,
+              _hue: 220, _kind: "black",
+            };
+          }
+          case "grey": {
+            const [bg, bgHi] = ramp.brandGrey.bgL;
+            const [bd, bdHi] = ramp.brandGrey.borderL;
+            const useBg = highlighted ? bgHi : bg;
+            const useBd = highlighted ? bdHi : bd;
+            return {
+              background: `hsl(220 5% ${useBg}%)`,
+              color: `hsl(220 8% ${ramp.brandGrey.fgL}%)`,
+              border: `1px solid hsl(220 8% ${useBd}%)`,
+              _hue: 220, _kind: "grey",
+            };
+          }
+          case "white": {
+            const [bg, bgHi] = ramp.brandWhite.bgL;
+            const [bd, bdHi] = ramp.brandWhite.borderL;
+            const useBg = highlighted ? bgHi : bg;
+            const useBd = highlighted ? bdHi : bd;
+            return {
+              background: `hsl(220 8% ${useBg}%)`,
+              color: `hsl(220 14% ${ramp.brandWhite.fgL}%)`,
+              border: `1px solid hsl(220 10% ${useBd}%)`,
+              _hue: 220, _kind: "white",
+            };
+          }
+          case "hue": {
+            const h = style.h;
+            const s = style.s ?? 30;
+            const [bgLBase, bgLHi] = ramp.brandHueBgL;
+            const useBgL = highlighted ? bgLHi : bgLBase;
+            const fgSat = Math.min(s + 6, 38);
+            const borderSat = highlighted
+              ? Math.min(s + 4, 38)
+              : Math.max(s - 8, 10);
+            const [shiftBase, shiftHi] = ramp.brandHueBorderShift;
+            const useShift = highlighted ? shiftHi : shiftBase;
+            const rawBorderL = useBgL + useShift;
+            const borderL =
+              ramp.hashBorderDirection === "lighter"
+                ? Math.min(rawBorderL, ramp.brandHueBorderClamp)
+                : Math.max(rawBorderL, ramp.brandHueBorderClamp);
+            return {
+              background: `hsl(${h} ${s}% ${useBgL}%)`,
+              color: `hsl(${h} ${fgSat}% ${ramp.brandHueFgL}%)`,
+              border: `1px solid hsl(${h} ${borderSat}% ${borderL}%)`,
+              _hue: h, _kind: "brand",
+            };
+          }
+        }
+      }
+      function tagPillStyle(tag, highlighted, theme = "dark") {
         const key = tag.trim();
         const k = key.length === 0 ? "\0" : key;
+        const ramp = rampFor(theme);
+        const brand = BRAND_PALETTE[normalizeBrandKey(k)];
+        if (brand) return brandPillStyle(brand, highlighted, ramp);
         const hueSeed = tagWord(k, "hue");
         const hueSpread = Math.imul(hueSeed, 2654435761) >>> 0;
         const hue = hueFromBands(hueSpread);
@@ -211,241 +556,240 @@
         const sat = isGrey
           ? 3 + (tagWord(k, "sat") % 6)
           : 16 + (tagWord(k, "sat") % 17);
-        const bgBase = 22 + (tagWord(k, "bg") % 9);
-        const fg = 70 + (tagWord(k, "fg") % 14);
-        const bg = highlighted ? bgBase + 5 : bgBase;
+        const bgBase = ramp.hashBgBase + (tagWord(k, "bg") % ramp.hashBgJitter);
+        const fg = ramp.hashFgBase + (tagWord(k, "fg") % ramp.hashFgJitter);
+        const bg = highlighted ? bgBase + ramp.hashHighlightBgDelta : bgBase;
         const borderSat = Math.max(sat - 10, isGrey ? 0 : 9);
-        const borderL = bg + (highlighted ? 18 : 10);
-        const fgSat = isGrey ? Math.min(sat + 2, 10) : Math.min(sat + 5, 34);
+        const [borderShiftBase, borderShiftHi] = ramp.hashBorderShift;
+        const useBorderShift = highlighted ? borderShiftHi : borderShiftBase;
+        const rawBorderL = bg + useBorderShift;
+        const fgSat = isGrey
+          ? Math.min(sat + 2, ramp.hashGreyFgSatCap)
+          : Math.min(sat + 5, ramp.hashColoredFgSatCap);
         const highlightBorderSat = highlighted
           ? Math.min(sat + 8, isGrey ? 14 : 36)
           : borderSat;
+        const borderL =
+          ramp.hashBorderDirection === "lighter"
+            ? Math.min(rawBorderL, ramp.hashBorderClamp)
+            : Math.max(rawBorderL, ramp.hashBorderClamp);
         return {
           background: `hsl(${hue} ${sat}% ${bg}%)`,
           color: `hsl(${hue} ${fgSat}% ${fg}%)`,
-          border: `1px solid hsl(${hue} ${highlightBorderSat}% ${Math.min(borderL, 44)}%)`,
+          border: `1px solid hsl(${hue} ${highlightBorderSat}% ${borderL}%)`,
           _hue: hue,
-          _isGrey: isGrey,
+          _kind: isGrey ? "hash-grey" : "hash",
         };
       }
-      // ----------------------------------------------------------------------
 
-      const WORDS = [
-        "Ansible",
-        "Bash",
-        "Cloud",
-        "Docker",
-        "Elasticsearch",
-        "Firewall",
-        "Git",
-        "HAProxy",
-        "Ingress",
-        "Jenkins",
-        "Kubernetes",
-        "Linux",
-        "MySQL",
-        "Nginx",
-        "OpenShift",
-        "Prometheus",
-        "QEMU",
-        "Redis",
-        "SSH",
-        "Terraform",
-        "Ubuntu",
-        "VPN",
-        "Webhook",
-        "XenServer",
-        "YAML",
-        "Zookeeper",
-      ];
-
-      function makePill(word, highlighted) {
-        const s = tagPillStyle(word, highlighted);
+      // ── 5. Rendering helpers ─────────────────────────────────────────────
+      function makePill(label, theme, source = label, highlighted = false) {
+        const s = tagPillStyle(source, highlighted, theme);
         const el = document.createElement("span");
         el.className = "tag-pill";
-        el.textContent = word;
+        el.textContent = label;
         el.style.background = s.background;
         el.style.color = s.color;
         el.style.border = s.border;
+        el.title = `${label}  →  hue ${s._hue}  ·  kind ${s._kind}  ·  theme ${theme}`;
         return el;
       }
 
-      const LARGE_SAMPLE = [
-        "Ansible",
-        "Apache",
-        "API",
-        "AWS",
-        "Azure",
-        "Bastion",
-        "Bash",
-        "BGP",
-        "Backup",
-        "Bind",
-        "Cassandra",
-        "CDN",
-        "Cilium",
-        "Cluster",
-        "Cloud",
-        "ConfigMap",
-        "Container",
-        "Consul",
-        "Cron",
-        "Daemon",
-        "Datadog",
-        "DHCP",
-        "Docker",
-        "Domain",
-        "DNS",
-        "Edge",
-        "Elastic",
-        "Envoy",
-        "Etcd",
-        "Falco",
-        "Firewall",
-        "Fleet",
-        "Fluentd",
-        "Gateway",
-        "Git",
-        "GitHub",
-        "GitLab",
-        "Grafana",
-        "GraphQL",
-        "HAProxy",
-        "Hashicorp",
-        "Helm",
-        "Hub",
-        "Hypervisor",
-        "IAM",
-        "Ingress",
-        "Istio",
-        "Jaeger",
-        "Java",
-        "Jenkins",
-        "JumpHost",
-        "Kafka",
-        "Kibana",
-        "Kong",
-        "Kubelet",
-        "Kubernetes",
-        "LDAP",
-        "Linkerd",
-        "Linux",
-        "Loadbalancer",
-        "Loki",
-        "MariaDB",
-        "Mesh",
-        "Mongo",
-        "Monitoring",
-        "MySQL",
-        "Nagios",
-        "Namespace",
-        "NATS",
-        "Network",
-        "Nginx",
-        "Node",
-        "Nomad",
-        "OpenShift",
-        "OpenSSL",
-        "Operator",
-        "Orchestrator",
-        "Packer",
-        "PagerDuty",
-        "PostgreSQL",
-        "Prometheus",
-        "Proxy",
-        "Pulumi",
-        "Puppet",
-        "QEMU",
-        "Queue",
-        "RabbitMQ",
-        "Redis",
-        "Replica",
-        "Restic",
-        "Route53",
-        "Router",
-        "S3",
-        "SaltStack",
-        "Secrets",
-        "Sentry",
-        "Server",
-        "Service",
-        "Sidecar",
-        "Slack",
-        "SNMP",
-        "Splunk",
-        "SQL",
-        "SSH",
-        "SSL",
-        "Storage",
-        "Switch",
-        "Sysctl",
-        "Systemd",
-        "TCP",
-        "Telegraf",
-        "Terraform",
-        "TLS",
-        "Traefik",
-        "Tunnel",
-        "Ubuntu",
-        "UDP",
-        "Uptime",
-        "Vagrant",
-        "Vault",
-        "VLAN",
-        "VPC",
-        "VPN",
-        "WAF",
-        "Webhook",
-        "Wireguard",
-        "Wireshark",
-        "XenServer",
-        "YAML",
-        "Zone",
-        "Zookeeper",
-        "Zsh",
+      const HASH_SAMPLES = [
+        "Asgard", "Borealis", "Cobalt", "Drake", "Ember", "Fjord",
+        "Galaxy", "Horizon", "Iris", "Juniper", "Krypton", "Lumen",
+        "Mistral", "Nimbus", "Onyx", "Phantom", "Quartz", "Raven",
+        "Sable", "Tundra", "Umbra", "Vortex", "Willow", "Xanadu",
+        "Yonder", "Zenith",
       ];
 
-      const normal = document.getElementById("pills-normal");
-      const high = document.getElementById("pills-highlighted");
-      const grid = document.getElementById("grid");
-      const swatches = document.getElementById("swatches");
-      const large = document.getElementById("pills-large");
+      const CASE_DEMOS = [
+        ["aws", ["aws", "AWS", "Aws", "  AWS  "]],
+        ["python", ["python", "Python", "PYTHON", "py"]],
+        ["back-end vs backend", ["backend", "Backend", "back-end", "Back End", "BACK_END"]],
+        ["nodejs", ["nodejs", "NodeJS", "Node.js", "node-js", "Node JS", "node"]],
+        ["postgresql", ["postgres", "Postgres", "PostgreSQL", "psql", "POSTGRES_QL"]],
+        ["k8s", ["k8s", "K8s", "K8S", "kubernetes", "Kubernetes"]],
+        ["c# / c++ / c", ["c", "C", "c++", "C++", "cpp", "c#", "C#", "csharp"]],
+        ["red hat", ["redhat", "Red Hat", "RED HAT", "rhel", "RHEL"]],
+        ["mysql", ["mysql", "MySQL", "MYSQL", "My SQL", "my-sql"]],
+        ["unmapped fallback", ["MyCustomTool", "internal-service", "weird thing"]],
+      ];
 
-      WORDS.forEach((w) => {
-        normal.appendChild(makePill(w, false));
-        high.appendChild(makePill(w, true));
+      // ── 6. Panel rendering for a single theme ────────────────────────────
+      function renderPanels(theme) {
+        const brandHost = document.getElementById("brand-categories");
+        brandHost.innerHTML = "";
+        let totalBrandEntries = 0;
+        BRAND_CATEGORIES.forEach((cat) => {
+          const keys = Object.keys(cat.entries).sort();
+          totalBrandEntries += keys.length;
+          const heading = document.createElement("h3");
+          heading.textContent = `${cat.name}  ·  ${keys.length}`;
+          brandHost.appendChild(heading);
+          const row = document.createElement("div");
+          row.className = "row";
+          keys.forEach((k) => row.appendChild(makePill(k, theme)));
+          brandHost.appendChild(row);
+        });
+        document.getElementById("brand-stat").textContent =
+          `${totalBrandEntries} brand entries total. Lookup is case- and hyphen/underscore/space-insensitive.`;
 
-        const cell = document.createElement("div");
-        cell.className = "cell";
-        const letter = document.createElement("span");
-        letter.className = "letter";
-        letter.textContent = w[0].toUpperCase();
-        cell.appendChild(letter);
-        cell.appendChild(makePill(w, false));
-        grid.appendChild(cell);
+        const caseDemo = document.getElementById("case-demo");
+        caseDemo.innerHTML = "";
+        CASE_DEMOS.forEach(([title, variants]) => {
+          const lab = document.createElement("div");
+          lab.className = "label";
+          lab.textContent = title;
+          caseDemo.appendChild(lab);
+          const row = document.createElement("div");
+          row.className = "row";
+          variants.forEach((v) => row.appendChild(makePill(v, theme)));
+          caseDemo.appendChild(row);
+        });
 
-        const s = tagPillStyle(w, false);
-        const sw = document.createElement("div");
-        sw.className = "swatch";
-        sw.style.background = `hsl(${s._hue} 60% 50%)`;
-        sw.title = `${w} → hue ${s._hue}${s._isGrey ? " (grey)" : ""}`;
-        swatches.appendChild(sw);
-      });
+        const hashHost = document.getElementById("pills-hash");
+        hashHost.innerHTML = "";
+        let hashGreyCount = 0;
+        HASH_SAMPLES.forEach((w) => {
+          const style = tagPillStyle(w, false, theme);
+          if (style._kind === "hash-grey") hashGreyCount++;
+          hashHost.appendChild(makePill(w, theme));
+        });
+        document.getElementById("hash-stat").textContent =
+          `Grey via hash branch: ${hashGreyCount} / ${HASH_SAMPLES.length} (target ~20%). Custom words not in the brand palette fall through here.`;
 
-      let greyCount = 0;
-      LARGE_SAMPLE.forEach((w) => {
-        const s = tagPillStyle(w, false);
-        if (s._isGrey) greyCount++;
-        large.appendChild(makePill(w, false));
-      });
-      const note = document.createElement("div");
-      note.style.marginTop = "10px";
-      note.style.fontSize = "11.5px";
-      note.style.color = "var(--muted)";
-      note.textContent = `Grey pills in sample: ${greyCount} / ${LARGE_SAMPLE.length} (~${Math.round(
-        (greyCount / LARGE_SAMPLE.length) * 100,
-      )}%) — target is ~20%.`;
-      large.parentElement.appendChild(note);
+        const swatchHost = document.getElementById("swatches");
+        swatchHost.innerHTML = "";
+        const SWATCH_POOL = [
+          ...Object.keys(BRAND_PALETTE).slice(0, 60),
+          ...HASH_SAMPLES,
+        ];
+        SWATCH_POOL.forEach((w) => {
+          const s = tagPillStyle(w, false, theme);
+          const sw = document.createElement("div");
+          sw.className = "swatch";
+          if (s._kind === "black") {
+            sw.style.background = `hsl(220 8% ${theme === "light" ? 22 : 12}%)`;
+          } else if (s._kind === "grey" || s._kind === "hash-grey") {
+            sw.style.background = `hsl(220 4% ${theme === "light" ? 70 : 38}%)`;
+          } else {
+            sw.style.background = `hsl(${s._hue} 60% 50%)`;
+          }
+          sw.title = `${w}  →  hue ${s._hue}  ·  ${s._kind}  ·  ${theme}`;
+          swatchHost.appendChild(sw);
+        });
+      }
+
+      // ── 7. Side-by-side split mode ───────────────────────────────────────
+      function renderSplit() {
+        const main = document.querySelector("body");
+        main.querySelectorAll("section.panel").forEach((p) => p.remove());
+        const footer = main.querySelector("footer");
+        const panel = document.createElement("section");
+        panel.className = "panel";
+        panel.innerHTML = `<h2>Side-by-side — dark vs light</h2>`;
+
+        const wrap = document.createElement("div");
+        wrap.style.display = "grid";
+        wrap.style.gridTemplateColumns = "1fr 1fr";
+        wrap.style.gap = "16px";
+
+        ["dark", "light"].forEach((theme) => {
+          const col = document.createElement("div");
+          col.style.padding = "14px 16px";
+          col.style.borderRadius = "8px";
+          col.style.border = "1px solid var(--border)";
+          col.style.background = theme === "dark" ? "#161922" : "#ffffff";
+          col.style.color = theme === "dark" ? "#d8dbe5" : "#1d1d1f";
+
+          const title = document.createElement("h3");
+          title.textContent = theme.toUpperCase();
+          title.style.margin = "0 0 12px";
+          title.style.fontSize = "11.5px";
+          title.style.letterSpacing = "0.08em";
+          title.style.color = theme === "dark" ? "#8a90a2" : "#6a6f7d";
+          col.appendChild(title);
+
+          const sample = [
+            "aws", "azure", "gcp", "docker", "kubernetes", "python",
+            "javascript", "typescript", "react", "vue", "nginx",
+            "mysql", "postgresql", "redis", "mongodb", "terraform",
+            "vite", "bash", "ssh", "github", "vercel", "linux",
+            "ubuntu", "redhat", "db", "sql", "cloud", "vpn", "macos",
+            "prod", "dev", "staging", "backend", "frontend",
+            "fullstack", "Asgard", "Borealis", "Cobalt", "Drake",
+            "Ember", "Galaxy", "Mistral", "Nimbus", "Phantom",
+            "Quartz", "Tundra", "Vortex", "Zenith",
+          ];
+          const row = document.createElement("div");
+          row.className = "row";
+          sample.forEach((w) => row.appendChild(makePill(w, theme)));
+          col.appendChild(row);
+
+          wrap.appendChild(col);
+        });
+        panel.appendChild(wrap);
+        main.insertBefore(panel, footer);
+      }
+
+      // ── 8. Theme switcher wiring ─────────────────────────────────────────
+      const SINGLE_PANELS_HTML = `
+        <section class="panel">
+          <h2>Brand palette — by category</h2>
+          <div id="brand-categories"></div>
+          <div class="stat" id="brand-stat"></div>
+        </section>
+        <section class="panel">
+          <h2>Case / spacing insensitivity demo</h2>
+          <div class="case-row" id="case-demo"></div>
+        </section>
+        <section class="panel">
+          <h2>Hash fallback — 26 words (none in brand palette)</h2>
+          <div class="row" id="pills-hash"></div>
+          <div class="stat" id="hash-stat"></div>
+        </section>
+        <section class="panel">
+          <h2>Hue-only swatches — hash spread + brand mixed in</h2>
+          <div class="swatch-row" id="swatches"></div>
+        </section>
+      `;
+      function ensureSinglePanels() {
+        if (document.getElementById("brand-categories")) return;
+        const main = document.querySelector("body");
+        const footer = main.querySelector("footer");
+        const tmpl = document.createElement("template");
+        tmpl.innerHTML = SINGLE_PANELS_HTML.trim();
+        [...tmpl.content.children].forEach((node) =>
+          main.insertBefore(node, footer),
+        );
+      }
+      function applyTheme(mode) {
+        document
+          .querySelectorAll("[data-theme-btn]")
+          .forEach((b) =>
+            b.classList.toggle("active", b.dataset.themeBtn === mode),
+          );
+        if (mode === "split") {
+          document.documentElement.setAttribute("data-theme", "dark");
+          renderSplit();
+        } else {
+          document.documentElement.setAttribute("data-theme", mode);
+          // Re-create the four single-theme panels in case split mode
+          // removed them, then render against the chosen ramp.
+          document
+            .querySelectorAll("section.panel")
+            .forEach((p) => p.remove());
+          ensureSinglePanels();
+          renderPanels(mode);
+        }
+      }
+      document
+        .querySelectorAll("[data-theme-btn]")
+        .forEach((b) =>
+          b.addEventListener("click", () => applyTheme(b.dataset.themeBtn)),
+        );
+      applyTheme("dark");
     </script>
   </body>
 </html>

@@ -83,6 +83,11 @@ export function ProfileTerminalSession({
     term.loadAddon(fit);
     term.open(host);
     fit.fit();
+    // Fit once more after layout so scrollBarWidth / column count match the visible gutter
+    // (overlay scrollbars on macOS WKWebView otherwise leave the canvas one column too wide).
+    requestAnimationFrame(() => {
+      fitRef.current?.fit();
+    });
     termRef.current = term;
     fitRef.current = fit;
     registerTerminalClearHandler(profileId, () => {

@@ -11,7 +11,7 @@ export async function confirmDeleteProfile(displayName: string): Promise<boolean
   const body = deleteProfileConfirmationBody(displayName);
   try {
     return await nativeConfirm(body, {
-      title: "LowCal",
+      title: "Lowcal",
       kind: "warning",
       okLabel: "Delete",
       cancelLabel: "Cancel",

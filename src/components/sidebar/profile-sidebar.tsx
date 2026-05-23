@@ -8,6 +8,7 @@ import {
   SidebarTagFilterIcon,
 } from "../profile-icons";
 import type { ProfileDto } from "../../types/profile";
+import type { ResolvedTheme } from "../../settings/global-settings";
 import { PTY_OUTPUT_ACTIVITY_MS } from "../../constants/terminal-ui";
 import type { LegacyRef, MutableRefObject, RefObject } from "react";
 
@@ -15,6 +16,7 @@ function ProfileTabRow(props: {
   profile: ProfileDto;
   selected: boolean;
   tagFilter: string | null;
+  resolvedTheme: ResolvedTheme;
   ptyOutputRecent: boolean;
   startBusy: boolean;
   stopBusy: boolean;
@@ -69,7 +71,11 @@ function ProfileTabRow(props: {
                 <span
                   key={t}
                   className="tag-pill tag-pill--hue"
-                  style={tagPillStyle(t, props.tagFilter !== null && props.tagFilter === t)}
+                  style={tagPillStyle(
+                    t,
+                    props.tagFilter !== null && props.tagFilter === t,
+                    props.resolvedTheme,
+                  )}
                 >
                   {t}
                 </span>
@@ -145,6 +151,7 @@ export function ProfileSidebar(props: {
   tagFilter: string | null;
   tagToolbarOpen: boolean;
   onToggleTagToolbar: () => void;
+  resolvedTheme: ResolvedTheme;
 }) {
   const {
     query,
@@ -165,6 +172,7 @@ export function ProfileSidebar(props: {
     tagFilter,
     tagToolbarOpen,
     onToggleTagToolbar,
+    resolvedTheme,
   } = props;
 
   return (
@@ -252,6 +260,7 @@ export function ProfileSidebar(props: {
                 profile={p}
                 selected={selectedId === p.id}
                 tagFilter={tagFilter}
+                resolvedTheme={resolvedTheme}
                 ptyOutputRecent={ptyOutputRecent}
                 startBusy={startBusy}
                 stopBusy={stopBusy}

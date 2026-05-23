@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ResolvedTheme } from "../../settings/global-settings";
 import { tagPillStyle } from "../../utils/tag-pills";
 
 export function TopToolbar(props: {
@@ -8,8 +9,17 @@ export function TopToolbar(props: {
   tagBulkDisabled: boolean;
   run: (fn: () => Promise<void>) => Promise<void>;
   restartProfilesByTag: (tag: string) => Promise<void>;
+  resolvedTheme: ResolvedTheme;
 }) {
-  const { allTags, tagFilter, setTagFilter, tagBulkDisabled, run, restartProfilesByTag } = props;
+  const {
+    allTags,
+    tagFilter,
+    setTagFilter,
+    tagBulkDisabled,
+    run,
+    restartProfilesByTag,
+    resolvedTheme,
+  } = props;
 
   return (
     <header className="toolbar">
@@ -26,7 +36,7 @@ export function TopToolbar(props: {
             key={t}
             type="button"
             className={`tag-chip tag-chip--hue${tagFilter === t ? " active" : ""}`}
-            style={tagPillStyle(t, tagFilter === t)}
+            style={tagPillStyle(t, tagFilter === t, resolvedTheme)}
             onClick={() => setTagFilter((cur) => (cur === t ? null : t))}
           >
             {t}

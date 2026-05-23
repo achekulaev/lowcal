@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "LowCal",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "identifier": "dev.lowcal.terminal-orchestrator",
   "build": {
     "frontendDist": "../dist",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "My LowCal Environment",
+        "title": "Lowcal Terminal Orchestrator",
         "width": 1280,
         "height": 840,
         "minWidth": 1040,

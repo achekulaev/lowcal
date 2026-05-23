@@ -1008,14 +1008,39 @@ body {
   flex: 1;
   min-height: 0;
   padding: 0.35rem;
+  border-radius: 6px;
+  overflow: hidden;
 }
 
 .xterm-host .xterm {
+  width: 100%;
   height: 100%;
 }
 
+/*
+ * xterm's canvas can paint over the native scrollbar gutter on macOS / WKWebView
+ * (overlay scrollbars take no layout space), so clicks on the thumb select a line
+ * instead of scrolling. Reserve a stable gutter and style WebKit scrollbars so the
+ * track sits above the terminal surface and receives pointer events.
+ */
 .xterm-host .xterm-viewport {
-  border-radius: 6px;
+  scrollbar-gutter: stable;
+  overflow-y: scroll;
+}
+
+.xterm-host .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+
+.xterm-host .xterm-viewport::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--muted) 50%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.xterm-host .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--muted) 70%, transparent);
 }
 
 .empty-terminal {

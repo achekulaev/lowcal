@@ -39,7 +39,7 @@ import {
 } from "./utils/profile-form";
 
 /** When no tab is selected; matches startup title in `tauri.conf.json`. */
-const MAIN_WINDOW_TITLE_IDLE = "My LowCal Environment";
+const MAIN_WINDOW_TITLE_IDLE = "Lowcal Terminal Orchestrator";
 
 export default function App() {
   // Read the global appearance preference (3-state: system | dark | light) and resolve it
@@ -173,7 +173,7 @@ export default function App() {
   const tagBulkDisabled = !tagFilter;
 
   useEffect(() => {
-    const title = selected ? `LowCal · ${selected.displayName}` : MAIN_WINDOW_TITLE_IDLE;
+    const title = selected ? `Lowcal · ${selected.displayName}` : MAIN_WINDOW_TITLE_IDLE;
     document.title = title;
     void getCurrentWindow().setTitle(title).catch(() => {
       /* Plain Vite (`npm run dev`) has no native window */
@@ -614,6 +614,7 @@ export default function App() {
             tagBulkDisabled={tagBulkDisabled}
             run={run}
             restartProfilesByTag={(tag) => run(() => restartProfilesByTagFromUi(tag))}
+            resolvedTheme={resolvedTheme}
           />
         </div>
       </div>
@@ -638,6 +639,7 @@ export default function App() {
           tagFilter={tagFilter}
           tagToolbarOpen={tagToolbarOpen}
           onToggleTagToolbar={toggleTagToolbar}
+          resolvedTheme={resolvedTheme}
         />
 
         <section className="terminal-stage" aria-label="Active terminal session">
