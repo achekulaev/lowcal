@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { tagPillStyle } from "../../utils/tag-pills";
 import {
   SidebarTabRunIcon,
@@ -5,17 +6,28 @@ import {
   NewTerminalIcon,
   SidebarSearchIcon,
   SidebarCloseFilterIcon,
-  SidebarTagFilterIcon,
+  StopSquareIcon,
 } from "../profile-icons";
 import type { ProfileDto } from "../../types/profile";
 import type { ResolvedTheme } from "../../settings/global-settings";
 import { PTY_OUTPUT_ACTIVITY_MS } from "../../constants/terminal-ui";
+import { ProfileTree } from "./profile-tree";
 import type { LegacyRef, MutableRefObject, RefObject } from "react";
 
-function ProfileTabRow(props: {
+/**
+ * Single sidebar row for one profile. Rendered both by the tag tree (nested
+ * under expanded folders) and by the flat search-results list. `showTagPills`
+ * controls whether the row paints its `.tags-inline` chip strip:
+ *  - `false` under tag folders — folder already names the tag, repeating pills
+ *    on every nested row creates noise.
+ *  - `true` in flat search results and inside the Untagged folder — the user
+ *    is looking at profiles without a single shared tag context, so the pills
+ *    (or "no tag" placeholder) are the only on-row hint of categorisation.
+ */
+export function ProfileTabRow(props: {
   profile: ProfileDto;
   selected: boolean;
-  tagFilter: string | null;
+  showTagPills: boolean;
   resolvedTheme: ResolvedTheme;
   ptyOutputRecent: boolean;
   startBusy: boolean;
@@ -65,25 +77,23 @@ function ProfileTabRow(props: {
         </span>
         <div className="profile-meta">
           <div className="profile-title">{p.displayName}</div>
-          <div className="tags-inline">
-            {p.tags.length > 0 ? (
-              p.tags.map((t) => (
-                <span
-                  key={t}
-                  className="tag-pill tag-pill--hue"
-                  style={tagPillStyle(
-                    t,
-                    props.tagFilter !== null && props.tagFilter === t,
-                    props.resolvedTheme,
-                  )}
-                >
-                  {t}
-                </span>
-              ))
-            ) : (
-              <span className="tag-pill tag-pill--placeholder">no tag</span>
-            )}
-          </div>
+          {props.showTagPills ? (
+            <div className="tags-inline">
+              {p.tags.length > 0 ? (
+                p.tags.map((t) => (
+                  <span
+                    key={t}
+                    className="tag-pill tag-pill--hue"
+                    style={tagPillStyle(t, false, props.resolvedTheme)}
+                  >
+                    {t}
+                  </span>
+                ))
+              ) : (
+                <span className="tag-pill tag-pill--placeholder">no tag</span>
+              )}
+            </div>
+          ) : null}
         </div>
       </button>
       <button
@@ -138,7 +148,10 @@ export function ProfileSidebar(props: {
   sidebarFilterOpen: boolean;
   setSidebarFilterOpen: (v: boolean) => void;
   sidebarFilterInputRef: RefObject<HTMLInputElement | null>;
-  filtered: ProfileDto[];
+  profiles: ProfileDto[];
+  allTags: string[];
+  searchActive: boolean;
+  searchResults: ProfileDto[];
   selectedId: string | null;
   setSelectedId: (id: string) => void;
   setProfileMenu: (s: { clientX: number; clientY: number; profileId: string }) => void;
@@ -148,10 +161,11 @@ export function ProfileSidebar(props: {
   stopSpinHold: Record<string, true>;
   ptyOutputActivityTick: number;
   lastPtyOutputMsRef: MutableRefObject<Record<string, number>>;
-  tagFilter: string | null;
-  tagToolbarOpen: boolean;
-  onToggleTagToolbar: () => void;
   resolvedTheme: ResolvedTheme;
+  onStopAll: () => void;
+  onStartTag: (tag: string) => void;
+  onStopTag: (tag: string) => void;
+  onRestartTag: (tag: string) => void;
 }) {
   const {
     query,
@@ -159,7 +173,10 @@ export function ProfileSidebar(props: {
     sidebarFilterOpen,
     setSidebarFilterOpen,
     sidebarFilterInputRef,
-    filtered,
+    profiles,
+    allTags,
+    searchActive,
+    searchResults,
     selectedId,
     setSelectedId,
     setProfileMenu,
@@ -169,11 +186,49 @@ export function ProfileSidebar(props: {
     stopSpinHold,
     ptyOutputActivityTick,
     lastPtyOutputMsRef,
-    tagFilter,
-    tagToolbarOpen,
-    onToggleTagToolbar,
     resolvedTheme,
+    onStopAll,
+    onStartTag,
+    onStopTag,
+    onRestartTag,
   } = props;
+
+  // Owned by the sidebar (not the tree) so collapse state survives the
+  // search/tree toggle — the tree unmounts while a query is active.
+  const [expandedTagFolders, setExpandedTagFolders] = useState<Set<string>>(new Set());
+
+  // Bottom-of-row hover/focus controls call `onToggleRun(p)` — wrap to keep
+  // the signature compatible with the tree's per-row `ProfileTabRow`.
+  const renderProfileRow = (p: ProfileDto, opts: { showTagPills: boolean }) => {
+    void ptyOutputActivityTick;
+    const tOut = lastPtyOutputMsRef.current[p.id];
+    const ptyOutputRecent = tOut != null && Date.now() - tOut < PTY_OUTPUT_ACTIVITY_MS;
+    const startBusy = Boolean(startSpinHold[p.id]);
+    const stopBusy = Boolean(stopSpinHold[p.id]);
+    return (
+      <ProfileTabRow
+        key={p.id}
+        profile={p}
+        selected={selectedId === p.id}
+        showTagPills={opts.showTagPills}
+        resolvedTheme={resolvedTheme}
+        ptyOutputRecent={ptyOutputRecent}
+        startBusy={startBusy}
+        stopBusy={stopBusy}
+        onSelect={() => setSelectedId(p.id)}
+        onOpenContextMenu={(e) => {
+          e.preventDefault();
+          setSelectedId(p.id);
+          setProfileMenu({
+            clientX: e.clientX,
+            clientY: e.clientY,
+            profileId: p.id,
+          });
+        }}
+        onToggleRun={() => toggleProfileRun(p)}
+      />
+    );
+  };
 
   return (
     <aside className="sidebar" aria-label="Terminal tabs">
@@ -202,15 +257,12 @@ export function ProfileSidebar(props: {
             </button>
             <button
               type="button"
-              className={`sidebar-add-icon-btn sidebar-add-icon-btn-sm${tagToolbarOpen ? " sidebar-tag-toolbar-active" : ""}`}
-              onClick={onToggleTagToolbar}
-              aria-pressed={tagToolbarOpen}
-              aria-label={
-                tagToolbarOpen ? "Close tag toolbar and reset tag filter" : "Tag filter and bulk actions"
-              }
-              title={tagToolbarOpen ? "Close tag toolbar" : "Filter by tag"}
+              className="sidebar-add-icon-btn sidebar-add-icon-btn-sm sidebar-stop-all-btn"
+              onClick={onStopAll}
+              aria-label="Stop all running terminals"
+              title="Stop all"
             >
-              <SidebarTagFilterIcon />
+              <StopSquareIcon />
             </button>
             <button
               type="button"
@@ -246,40 +298,27 @@ export function ProfileSidebar(props: {
         </div>
       </div>
       <div className="profile-list">
-        <div role="tablist" aria-label="Open terminal profiles">
-          {filtered.map((p) => {
-            void ptyOutputActivityTick;
-            const tOut = lastPtyOutputMsRef.current[p.id];
-            const ptyOutputRecent =
-              tOut != null && Date.now() - tOut < PTY_OUTPUT_ACTIVITY_MS;
-            const startBusy = Boolean(startSpinHold[p.id]);
-            const stopBusy = Boolean(stopSpinHold[p.id]);
-            return (
-              <ProfileTabRow
-                key={p.id}
-                profile={p}
-                selected={selectedId === p.id}
-                tagFilter={tagFilter}
-                resolvedTheme={resolvedTheme}
-                ptyOutputRecent={ptyOutputRecent}
-                startBusy={startBusy}
-                stopBusy={stopBusy}
-                onSelect={() => setSelectedId(p.id)}
-                onOpenContextMenu={(e) => {
-                  e.preventDefault();
-                  setSelectedId(p.id);
-                  setProfileMenu({
-                    clientX: e.clientX,
-                    clientY: e.clientY,
-                    profileId: p.id,
-                  });
-                }}
-                onToggleRun={() => toggleProfileRun(p)}
-              />
-            );
-          })}
-        </div>
-        {filtered.length === 0 ? (
+        {searchActive ? (
+          // Flat deduped result list. Pills are always shown here so the row
+          // still tells the user which tag contexts each match belongs to.
+          <div role="tablist" aria-label="Search results">
+            {searchResults.map((p) => renderProfileRow(p, { showTagPills: true }))}
+          </div>
+        ) : (
+          <ProfileTree
+            profiles={profiles}
+            allTags={allTags}
+            selectedId={selectedId}
+            resolvedTheme={resolvedTheme}
+            expanded={expandedTagFolders}
+            setExpanded={setExpandedTagFolders}
+            renderProfileRow={renderProfileRow}
+            onStartTag={onStartTag}
+            onStopTag={onStopTag}
+            onRestartTag={onRestartTag}
+          />
+        )}
+        {(searchActive ? searchResults : profiles).length === 0 ? (
           <div className="sidebar-add-inline" role="presentation">
             <button
               type="button"

@@ -184,108 +184,6 @@ body {
   overflow: hidden;
 }
 
-.toolbar-slide-shell {
-  --toolbar-slide-duration: 0.28s;
-  --toolbar-slide-ease: cubic-bezier(0.33, 1, 0.68, 1);
-  display: grid;
-  grid-template-rows: 0fr;
-  flex-shrink: 0;
-  min-height: 0;
-  overflow: hidden;
-  transition: grid-template-rows var(--toolbar-slide-duration) var(--toolbar-slide-ease);
-}
-
-.toolbar-slide-shell--open {
-  grid-template-rows: 1fr;
-}
-
-.toolbar-slide-inner {
-  overflow: hidden;
-  min-height: 0;
-}
-
-.toolbar-slide-shell:not(.toolbar-slide-shell--open) .toolbar {
-  pointer-events: none;
-}
-
-.toolbar-slide-shell .toolbar {
-  transform: translateY(-100%);
-  transition: transform var(--toolbar-slide-duration) var(--toolbar-slide-ease);
-}
-
-.toolbar-slide-shell--open .toolbar {
-  transform: translateY(0);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .toolbar-slide-shell {
-    transition-duration: 0.01ms;
-  }
-
-  .toolbar-slide-shell .toolbar {
-    transition-duration: 0.01ms;
-  }
-}
-
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.75rem;
-  padding: 0.65rem 0.85rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel);
-}
-
-.toolbar button {
-  padding: 0.35rem 0.65rem;
-  border-radius: 6px;
-  border: 1px solid var(--button-border);
-  background: var(--button-fill);
-  color: var(--button-fg);
-  cursor: pointer;
-  font-size: 0.8rem;
-}
-
-.toolbar button:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.toolbar button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.toolbar .tag-filter {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  align-items: center;
-}
-
-.toolbar .tag-filter button.tag-chip {
-  background: var(--button-fill);
-}
-
-.toolbar .tag-filter button.tag-chip--hue:hover:not(:disabled) {
-  filter: brightness(1.12);
-}
-
-.toolbar .tag-filter button.tag-chip.active {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.toolbar .tag-filter button.tag-chip--hue.active {
-  /* Colors come from inline `tagPillStyle`; avoid accent override. */
-  filter: none;
-}
-
-.toolbar .tag-filter button.tag-chip--hue.active:hover:not(:disabled) {
-  filter: brightness(1.1);
-}
-
 .main {
   flex: 1;
   min-height: 0;
@@ -464,16 +362,189 @@ body {
   height: 14px;
 }
 
-.sidebar-add-icon-btn.sidebar-tag-toolbar-active {
-  background: var(--accent);
-  color: var(--bg);
-  border-color: var(--accent);
+/* Sidebar header Stop-all action: tints to the stopped red on hover so it
+   reads as a destructive bulk control next to the neutral search / new. */
+.sidebar-stop-all-btn:hover {
+  border-color: color-mix(in srgb, var(--stopped) 75%, transparent);
+  color: var(--stopped-hover);
 }
 
-.sidebar-add-icon-btn.sidebar-tag-toolbar-active:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-  color: var(--bg);
+/* ── Tag folder tree ─────────────────────────────────────────────────────
+ * `profile-tree` replaces the flat `profile-list` when no text query is
+ * active. Each `tag-folder` row is a chevron + tag-coloured label + a
+ * neutral running/total pill, with bulk-action icons on the right.
+ * Untagged is a sentinel folder rendered with a muted label and no bulk
+ * actions (there is no backend `start_tag("")` equivalent).
+ */
+.profile-tree {
+  display: flex;
+  flex-direction: column;
+}
+
+.tag-folder {
+  display: flex;
+  flex-direction: column;
+}
+
+.tag-folder-row {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+}
+
+.tag-folder-row:hover {
+  background: var(--row-hover);
+}
+
+.tag-folder-header {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.5rem 0.4rem 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.tag-folder-header:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.tag-folder-chevron {
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: transform 0.12s ease;
+}
+
+.tag-folder-chevron--expanded {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tag-folder-chevron {
+    transition: none;
+  }
+}
+
+.tag-folder-label {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-folder-label--untagged {
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  background: var(--muted-tint-bg);
+  border: 1px solid color-mix(in srgb, var(--muted-tint-border) 60%, transparent);
+}
+
+.tag-folder-count-pill {
+  margin-left: auto;
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--muted-tint-bg);
+  border: 1px solid color-mix(in srgb, var(--muted-tint-border) 45%, transparent);
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+
+/* Tint the count pill toward the live `--running` token when at least one
+   profile in the folder is running, so the bar at a glance shows activity. */
+.tag-folder-count-pill--active {
+  color: var(--running);
+  background: color-mix(in srgb, var(--running) 12%, transparent);
+  border-color: color-mix(in srgb, var(--running) 35%, transparent);
+}
+
+.tag-folder-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding-right: 0.45rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s ease;
+}
+
+.tag-folder-row:hover .tag-folder-actions,
+.tag-folder-row:focus-within .tag-folder-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .tag-folder-actions {
+    opacity: 0.92;
+    pointer-events: auto;
+  }
+}
+
+.tag-folder-action {
+  width: 1.55rem;
+  height: 1.55rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--button-fill);
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    border-color 0.1s ease,
+    color 0.1s ease,
+    background 0.1s ease;
+}
+
+.tag-folder-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tag-folder-action--start:hover {
+  color: var(--running-hover);
+  border-color: color-mix(in srgb, var(--running) 70%, transparent);
+}
+
+.tag-folder-action--stop:hover {
+  color: var(--stopped-hover);
+  border-color: color-mix(in srgb, var(--stopped) 70%, transparent);
+}
+
+.tag-folder-action--restart:hover {
+  color: var(--accent-hover);
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+/* Nested profile rows under an expanded folder get a small indent so the
+   tree depth reads at a glance. Selection highlight inside `ProfileTabRow`
+   stays unchanged. */
+.tag-folder-children .profile-row-wrap .profile-row {
+  padding-left: 1.55rem;
+}
+
+.tag-folder-children .profile-row-wrap.selected .profile-row {
+  padding-left: calc(1.55rem - 3px);
 }
 
 .profile-row-wrap {

@@ -60,14 +60,35 @@ export function SidebarCloseFilterIcon() {
   );
 }
 
-/** Funnel — tag filter toolbar (bulk by tag). */
-export function SidebarTagFilterIcon() {
+/** Chevron used on tag folder rows; rotates 90° via CSS when `expanded`. */
+export function FolderChevronIcon({ expanded }: { expanded: boolean }) {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
-      <path
-        fill="currentColor"
-        d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"
-      />
+    <svg
+      className={`tag-folder-chevron${expanded ? " tag-folder-chevron--expanded" : ""}`}
+      width="10"
+      height="10"
+      viewBox="0 0 24 24"
+      aria-hidden
+    >
+      <path fill="currentColor" d="M9 6l6 6-6 6V6z" />
+    </svg>
+  );
+}
+
+/** Filled square — bulk Stop / Stop all (red accent in sidebar header / folder rows). */
+export function StopSquareIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
+      <rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** Filled play triangle — bulk Start (green accent on folder rows). */
+export function PlayTriangleIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
+      <path fill="currentColor" d="M8 5.5v13l11-6.5L8 5.5z" />
     </svg>
   );
 }

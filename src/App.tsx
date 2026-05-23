@@ -14,7 +14,6 @@ import { ProfileEditorModal } from "./components/profile-editor-modal";
 import { ProfileSidebar } from "./components/sidebar/profile-sidebar";
 import { TerminalStageHeader } from "./components/terminal/terminal-stage-header";
 import { TerminalWorkArea } from "./components/terminal/terminal-work-area";
-import { TopToolbar } from "./components/toolbar/top-toolbar";
 import {
   START_SPIN_HOLD_MS,
   START_SPIN_MIN_VISIBLE_MS,
@@ -53,8 +52,6 @@ export default function App() {
   const { query, setQuery, sidebarFilterOpen, setSidebarFilterOpen, sidebarFilterInputRef } =
     sidebarFilterApi;
 
-  const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [tagToolbarOpen, setTagToolbarOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const {
@@ -154,15 +151,20 @@ export default function App() {
     return [...s].sort((a, b) => a.localeCompare(b));
   }, [profiles]);
 
-  const filtered = useMemo(() => {
+  // Sidebar text search is now a *flat results mode*: while the query is
+  // non-empty, the tag-folder tree is replaced with a deduped flat list (one
+  // row per matching profile, even when it carries multiple tags). When the
+  // query is empty, the tree renders and `searchResults` is unused. Haystack
+  // matches the pre-tree behavior so existing muscle memory keeps working.
+  const searchActive = query.trim().length > 0;
+  const searchResults = useMemo(() => {
+    if (!searchActive) return [];
     const q = query.trim().toLowerCase();
     return profiles.filter((p) => {
-      if (tagFilter && !p.tags.includes(tagFilter)) return false;
-      if (!q) return true;
       const hay = `${p.displayName} ${p.id} ${p.command} ${p.tags.join(" ")}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [profiles, query, tagFilter]);
+  }, [profiles, query, searchActive]);
 
   const menuTargetProfile = useMemo(() => {
     if (!profileMenu) return null;
@@ -170,7 +172,6 @@ export default function App() {
   }, [profiles, profileMenu]);
 
   const selected = profiles.find((p) => p.id === selectedId) ?? null;
-  const tagBulkDisabled = !tagFilter;
 
   useEffect(() => {
     const title = selected ? `Lowcal · ${selected.displayName}` : MAIN_WINDOW_TITLE_IDLE;
@@ -384,6 +385,35 @@ export default function App() {
     [clearTerminalBuffersForProfiles, profiles],
   );
 
+  // Sidebar tag-folder bulk actions. Routed through `run` so refresh +
+  // error toasting stay consistent with the per-profile Start/Stop path.
+  // `run` is recreated every render (it closes over `refresh`); listing it
+  // in deps keeps the captured reference fresh.
+  const startTagFromSidebar = useCallback(
+    (tag: string) => {
+      void run(() => invoke("start_tag", { tag }));
+    },
+    [run],
+  );
+
+  const stopTagFromSidebar = useCallback(
+    (tag: string) => {
+      void run(() => invoke("stop_tag", { tag }));
+    },
+    [run],
+  );
+
+  const restartTagFromSidebar = useCallback(
+    (tag: string) => {
+      void run(() => restartProfilesByTagFromUi(tag));
+    },
+    [run, restartProfilesByTagFromUi],
+  );
+
+  const stopAllFromSidebar = useCallback(() => {
+    void run(() => invoke("stop_all"));
+  }, [run]);
+
   useEffect(() => {
     for (const p of profiles) {
       if (p.status === "running" && startSpinHoldRef.current.has(p.id)) {
@@ -590,35 +620,8 @@ export default function App() {
   const selectedForModalHint =
     modalMode === "edit" && editId ? profiles.find((p) => p.id === editId) ?? null : null;
 
-  const toggleTagToolbar = useCallback(() => {
-    setTagToolbarOpen((open) => {
-      if (open) {
-        setTagFilter(null);
-        return false;
-      }
-      return true;
-    });
-  }, []);
-
   return (
     <div className="app-shell">
-      <div
-        className={`toolbar-slide-shell${tagToolbarOpen ? " toolbar-slide-shell--open" : ""}`}
-        aria-hidden={!tagToolbarOpen}
-      >
-        <div className="toolbar-slide-inner">
-          <TopToolbar
-            allTags={allTags}
-            tagFilter={tagFilter}
-            setTagFilter={setTagFilter}
-            tagBulkDisabled={tagBulkDisabled}
-            run={run}
-            restartProfilesByTag={(tag) => run(() => restartProfilesByTagFromUi(tag))}
-            resolvedTheme={resolvedTheme}
-          />
-        </div>
-      </div>
-
       <div className="main">
         <ProfileSidebar
           query={query}
@@ -626,7 +629,10 @@ export default function App() {
           sidebarFilterOpen={sidebarFilterOpen}
           setSidebarFilterOpen={setSidebarFilterOpen}
           sidebarFilterInputRef={sidebarFilterInputRef}
-          filtered={filtered}
+          profiles={profiles}
+          allTags={allTags}
+          searchActive={searchActive}
+          searchResults={searchResults}
           selectedId={selectedId}
           setSelectedId={setSelectedId}
           setProfileMenu={setProfileMenu}
@@ -636,10 +642,11 @@ export default function App() {
           stopSpinHold={stopSpinHold}
           ptyOutputActivityTick={ptyOutputActivityTick}
           lastPtyOutputMsRef={lastPtyOutputMsRef}
-          tagFilter={tagFilter}
-          tagToolbarOpen={tagToolbarOpen}
-          onToggleTagToolbar={toggleTagToolbar}
           resolvedTheme={resolvedTheme}
+          onStopAll={stopAllFromSidebar}
+          onStartTag={startTagFromSidebar}
+          onStopTag={stopTagFromSidebar}
+          onRestartTag={restartTagFromSidebar}
         />
 
         <section className="terminal-stage" aria-label="Active terminal session">
