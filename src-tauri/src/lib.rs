@@ -1009,6 +1009,38 @@ impl ExitCodeScanner {
     }
 }
 
+/// `true` when `LOWCAL_DEBUG_BYTES` env var is set to a non-empty / non-"0" value at
+/// process startup. Used to gate verbose byte-level `tracing::debug!`s in the PTY reader
+/// thread and at `inject_profile_command` so normal dev runs stay quiet; flip it on with
+/// `LOWCAL_DEBUG_BYTES=1 cargo tauri dev --features debug-bridge` plus
+/// `tauri-browser logs --level debug` to capture the raw scrubber I/O for diagnostics.
+fn lowcal_debug_bytes_enabled() -> bool {
+    static FLAG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FLAG.get_or_init(|| {
+        matches!(
+            std::env::var("LOWCAL_DEBUG_BYTES").as_deref(),
+            Ok(v) if !v.is_empty() && v != "0"
+        )
+    })
+}
+
+/// Render a byte slice with non-printable characters escaped (`\x1b`, `\r`, `\n`, `\t`,
+/// `\xNN`) so it survives a single log line. Used only behind `lowcal_debug_bytes_enabled`.
+fn escape_bytes_for_log(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len());
+    for &b in bytes {
+        match b {
+            b'\n' => out.push_str("\\n"),
+            b'\r' => out.push_str("\\r"),
+            b'\t' => out.push_str("\\t"),
+            0x1b => out.push_str("\\x1b"),
+            0x20..=0x7e => out.push(b as char),
+            _ => out.push_str(&format!("\\x{:02x}", b)),
+        }
+    }
+    out
+}
+
 /// Streaming filter that removes the **echo** of `INJECTED_ECHO_SUFFIX` from PTY output
 /// before it reaches xterm.js, so the orchestrator instrumentation never renders on the
 /// prompt line.
@@ -1083,6 +1115,18 @@ impl InjectedEchoScrubber {
     /// start of a future signature and should be released to the UI).
     fn flush(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.pending)
+    }
+
+    /// Length of the in-progress prefix the scrubber is currently holding back (for
+    /// `LOWCAL_DEBUG_BYTES` diagnostics — never used for control flow).
+    fn pending_len(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// Borrow the in-progress prefix bytes (for `LOWCAL_DEBUG_BYTES` diagnostics — never
+    /// used for control flow). Returned slice is valid until the next `feed`/`flush` call.
+    fn pending_snapshot(&self) -> &[u8] {
+        &self.pending
     }
 }
 
@@ -1178,17 +1222,36 @@ fn spawn_shell_session(app: &AppHandle, state: &SharedState, profile_id: &str) -
         let mut buf = [0u8; 8192];
         let mut scanner = ExitCodeScanner::new();
         let mut scrubber = InjectedEchoScrubber::new();
+        let debug_bytes = lowcal_debug_bytes_enabled();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
                     let chunk = &buf[..n];
+                    if debug_bytes {
+                        tracing::debug!(
+                            profile_id = %id_reader,
+                            len = chunk.len(),
+                            raw = %escape_bytes_for_log(chunk),
+                            "pty_read"
+                        );
+                    }
                     // Scrub the *visible echo* of the injected suffix before forwarding to
                     // xterm.js. The exit-code scanner still consumes the raw chunk below
                     // because it needs to see the real APC bytes emitted at execution time;
                     // those are a different byte sequence from the printable echo and are
                     // never matched by the scrubber.
                     let visible = scrubber.feed(chunk);
+                    if debug_bytes {
+                        tracing::debug!(
+                            profile_id = %id_reader,
+                            forwarded_len = visible.len(),
+                            held_back_len = scrubber.pending_len(),
+                            forwarded = %escape_bytes_for_log(&visible),
+                            held = %escape_bytes_for_log(scrubber.pending_snapshot()),
+                            "scrubber_step"
+                        );
+                    }
                     if !visible.is_empty() {
                         let _ = output_reader.send(visible);
                     }
@@ -1429,6 +1492,14 @@ fn inject_profile_command(
     // terminator — those degrade to the existing gray dot.
     payload.extend_from_slice(INJECTED_ECHO_SUFFIX);
     payload.extend_from_slice(b"\r\n");
+    if lowcal_debug_bytes_enabled() {
+        tracing::debug!(
+            profile_id = %profile_id,
+            payload_len = payload.len(),
+            payload = %escape_bytes_for_log(&payload),
+            "inject_profile_command"
+        );
+    }
     ctl_tx
         .send(PtyCtl::Stdin(payload))
         .map_err(|_| "PTY writer closed".into())
@@ -2141,6 +2212,12 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Dev-only HTTP/WS bridge for the `tauri-browser` CLI. The plugin's
+        // HTTP server is gated upstream by `#[cfg(debug_assertions)]`, so
+        // release builds compile out the server and `init()` is a no-op —
+        // end users never get a debug port open. See
+        // `src-tauri/capabilities/debug-bridge.json` for the matching permission.
+        .plugin(tauri_plugin_debug_bridge::init())
         .on_menu_event(|app, event| {
             match event.id().as_ref() {
                 "preferences" => {
