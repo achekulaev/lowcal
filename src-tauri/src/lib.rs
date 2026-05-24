@@ -930,6 +930,16 @@ fn dispose_runtime_quiet(rt: SessionRuntime) {
     }
 }
 
+/// Exact bytes that `inject_profile_command` appends to every Start-injected command. All
+/// printable ASCII — the `\033` here is the four literal characters `\`, `0`, `3`, `3`, not
+/// the byte `0x1B`. The shell's `printf` interprets the escapes at execution time and emits
+/// the real APC sequence; the printable form is what we *send into* the PTY and therefore
+/// what `readline`/`zle` echoes back as visible text on the prompt line.
+///
+/// Shared with `InjectedEchoScrubber` so the injection and the scrub-pattern can never
+/// drift out of sync.
+const INJECTED_ECHO_SUFFIX: &[u8] = b"; printf '\\033_LOWCAL_RC=%d\\033\\\\' \"$?\"";
+
 /// Streaming scanner for the APC exit-code marker that `inject_profile_command` appends
 /// after every Start-injected command:
 ///
@@ -996,6 +1006,83 @@ impl ExitCodeScanner {
             self.pending.drain(..drop);
         }
         found
+    }
+}
+
+/// Streaming filter that removes the **echo** of `INJECTED_ECHO_SUFFIX` from PTY output
+/// before it reaches xterm.js, so the orchestrator instrumentation never renders on the
+/// prompt line.
+///
+/// Why this works without an "is a Start in flight?" gate: the shell's `readline` / `zle`
+/// echoes back exactly the bytes we wrote into the master. The injected suffix is a fixed
+/// printable string we control, and no user is going to type those 39 characters by accident
+/// in their own input — so any occurrence in the output stream is, with overwhelming
+/// probability, the round-trip of our own injection. (If a user really does, the only
+/// consequence is that one line of their output gets clipped — same severity as a typo.)
+///
+/// The exit-code APC marker that `printf` emits at *execution* time is intentionally **not**
+/// touched by this scrubber: `ExitCodeScanner` consumes the unfiltered chunk, and xterm.js
+/// swallows real APC sequences on its own. This scrubber only operates on the bytes we
+/// forward to the broadcast channel.
+///
+/// ## Limitations (documented, accepted)
+///
+/// 1. zsh plugins that colorize the input line as you type (`zsh-syntax-highlighting`,
+///    starship's input-highlight variants, etc.) insert `\033[…m` ANSI runs *between*
+///    individual characters of the echoed suffix. The literal-byte match then fails and the
+///    suffix stays visible — falls back to pre-scrubber behavior, doesn't make it worse.
+/// 2. If the terminal width is narrow enough that the injected line wraps mid-suffix, the
+///    shell inserts wrap bytes (CR + spaces, or a soft-wrap sequence) between characters of
+///    the echo. Same outcome as #1.
+/// 3. `bash-preexec` and similar `preexec` hooks that emit ANSI before each command don't
+///    intrude into the suffix itself, so they survive this fine.
+///
+/// Owned by the reader thread; not thread-safe (single owner only).
+struct InjectedEchoScrubber {
+    /// Holds a strict prefix of `INJECTED_ECHO_SUFFIX` that might be the start of an
+    /// in-progress occurrence split across PTY `read()` boundaries. Bounded by
+    /// `INJECTED_ECHO_SUFFIX.len() - 1` bytes by construction (never exceeds it).
+    pending: Vec<u8>,
+}
+
+impl InjectedEchoScrubber {
+    fn new() -> Self {
+        Self { pending: Vec::new() }
+    }
+
+    /// Append `chunk` to the rolling tail and return the bytes that are **safe to forward**
+    /// to xterm.js — i.e. everything except complete occurrences of `INJECTED_ECHO_SUFFIX`,
+    /// minus a trailing slice short enough that it could still be the prefix of a not-yet-
+    /// complete occurrence (held back for the next `feed` call).
+    fn feed(&mut self, chunk: &[u8]) -> Vec<u8> {
+        self.pending.extend_from_slice(chunk);
+        let sig = INJECTED_ECHO_SUFFIX;
+        let mut out = Vec::with_capacity(self.pending.len());
+        let mut i = 0;
+        while i < self.pending.len() {
+            // Full match → skip the whole signature.
+            if self.pending[i..].starts_with(sig) {
+                i += sig.len();
+                continue;
+            }
+            // Tail strictly shorter than the signature *and* a valid prefix of it: it might
+            // still complete on the next read. Hold the tail back and break.
+            let remaining = &self.pending[i..];
+            if remaining.len() < sig.len() && sig.starts_with(remaining) {
+                break;
+            }
+            out.push(self.pending[i]);
+            i += 1;
+        }
+        self.pending.drain(..i);
+        out
+    }
+
+    /// Flush whatever is still buffered (used when the PTY reader loop exits — at that
+    /// point no more bytes can arrive, so any held-back tail is by definition *not* the
+    /// start of a future signature and should be released to the UI).
+    fn flush(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.pending)
     }
 }
 
@@ -1090,17 +1177,24 @@ fn spawn_shell_session(app: &AppHandle, state: &SharedState, profile_id: &str) -
         };
         let mut buf = [0u8; 8192];
         let mut scanner = ExitCodeScanner::new();
+        let mut scrubber = InjectedEchoScrubber::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
                     let chunk = &buf[..n];
-                    let _ = output_reader.send(chunk.to_vec());
-                    // The APC marker is forwarded to xterm.js as-is (it consumes APC
-                    // silently). We also tap it here to populate `last_exit_code` so the
-                    // UI can paint a red dot the moment the Start-injected command exits
-                    // with a non-zero status. Emit a profile update so the dot can repaint
-                    // even if the watchdog hasn't yet cleared `command_running`.
+                    // Scrub the *visible echo* of the injected suffix before forwarding to
+                    // xterm.js. The exit-code scanner still consumes the raw chunk below
+                    // because it needs to see the real APC bytes emitted at execution time;
+                    // those are a different byte sequence from the printable echo and are
+                    // never matched by the scrubber.
+                    let visible = scrubber.feed(chunk);
+                    if !visible.is_empty() {
+                        let _ = output_reader.send(visible);
+                    }
+                    // APC marker tap: populate `last_exit_code` the moment the Start-injected
+                    // command exits with a non-zero status. Emit a profile update so the dot
+                    // can repaint even if the watchdog hasn't yet cleared `command_running`.
                     if let Some(code) = scanner.feed(chunk) {
                         *last_exit_code_reader.lock() = Some(code);
                         emit_profiles(&app_reader, &state_reader);
@@ -1108,6 +1202,14 @@ fn spawn_shell_session(app: &AppHandle, state: &SharedState, profile_id: &str) -
                 }
                 Err(_) => break,
             }
+        }
+        // Reader loop exited (EOF or error). No more bytes will arrive, so any tail the
+        // scrubber was holding back (in case it grew into a full signature) is by definition
+        // *not* the start of a future signature — release it to the UI so we don't drop
+        // legitimate trailing output of the user's command.
+        let tail = scrubber.flush();
+        if !tail.is_empty() {
+            let _ = output_reader.send(tail);
         }
         let rt_opt = state_reader.sessions.lock().remove(&id_reader);
         // If `None`, teardown already ran (e.g. **Delete profile**) — do not emit `session-ended`
@@ -1313,15 +1415,19 @@ fn inject_profile_command(
         }
     }
     payload.extend_from_slice(command.as_bytes());
-    // Append an APC marker emitter on the same logical line:
-    //   ; printf '\033_LOWCAL_RC=%d\033\\' "$?"
-    // The PTY reader scans for `ESC _LOWCAL_RC=<digits> ESC \` and stores the integer in
-    // `SessionRuntime.last_exit_code`. xterm.js silently consumes APC, so the marker
-    // never renders. POSIX `$?` covers bash / zsh / dash / ksh / sh; **fish** uses
-    // `$status` and so won't trigger the red-dot indicator. The trailing `; ` is also
-    // skipped if the user's command ends with a `#` comment or `&` background terminator
-    // — those degrade to the existing gray dot.
-    payload.extend_from_slice(b"; printf '\\033_LOWCAL_RC=%d\\033\\\\' \"$?\"");
+    // Append an APC marker emitter on the same logical line. The exact bytes live in
+    // `INJECTED_ECHO_SUFFIX` so `InjectedEchoScrubber` (which strips the visible echo from
+    // the output stream before it reaches xterm.js) can match against the same constant —
+    // the injection and the scrub-pattern can never drift apart.
+    //
+    // When `printf` actually runs, it interprets `\033` → ESC and emits the APC sequence
+    //   ESC _LOWCAL_RC=<digits> ESC \
+    // which xterm.js consumes silently and which `ExitCodeScanner` parses to populate
+    // `SessionRuntime.last_exit_code`. POSIX `$?` covers bash / zsh / dash / ksh / sh;
+    // **fish** uses `$status` and so won't trigger the red-dot indicator. The trailing
+    // `; ` is also skipped if the user's command ends with a `#` comment or `&` background
+    // terminator — those degrade to the existing gray dot.
+    payload.extend_from_slice(INJECTED_ECHO_SUFFIX);
     payload.extend_from_slice(b"\r\n");
     ctl_tx
         .send(PtyCtl::Stdin(payload))
