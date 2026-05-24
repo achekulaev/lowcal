@@ -11,12 +11,17 @@
 //! settings are UI-edited; external disk edits take effect on the next launch
 //! only, which avoids piling another reload-prompt dialog on top of the
 //! existing one.
+//!
+//! The on-disk directory is resolved via [`crate::resolved_app_config_dir`] so
+//! the `LOWCAL_CONFIG_DIR` env-var override is honoured here too — set it
+//! before launching the app and `settings.yaml` will live next to the
+//! overridden `terminals.yaml` instead of in the OS-standard app config dir.
 
 use std::fs;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 const SETTINGS_FILE_NAME: &str = "settings.yaml";
 
@@ -84,7 +89,7 @@ pub struct AppSettings {
 }
 
 fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let dir = crate::resolved_app_config_dir(app)?;
     Ok(dir.join(SETTINGS_FILE_NAME))
 }
 

@@ -459,12 +459,12 @@ export default function App() {
     }
   }, [profiles, clearStopSpinHold]);
 
-  const openCreateModal = () => {
+  const openCreateModal = useCallback(() => {
     setEditId(null);
     setForm(emptyForm());
     setModalError(null);
     setModalMode("create");
-  };
+  }, []);
 
   const openEditModal = (p: ProfileDto) => {
     setEditId(p.id);
@@ -580,6 +580,27 @@ export default function App() {
     },
     [closeSettingsModal, updateGlobalSettings],
   );
+
+  // Cmd+T / Cmd+= (macOS) / Ctrl+T / Ctrl+= — open the "New terminal" profile
+  // editor. Capture phase so it fires even when the xterm canvas has focus.
+  // Suppressed while any modal is open.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (modalMode || settingsModalOpen || quitConfirmRunning !== null) return;
+
+      const isNewTerminalKey =
+        e.key === "t" ||
+        e.key === "T" ||
+        ((e.key === "=" || e.code === "Equal") && !e.shiftKey);
+      if (!isNewTerminalKey) return;
+
+      e.preventDefault();
+      openCreateModal();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [modalMode, settingsModalOpen, quitConfirmRunning, openCreateModal]);
 
   // Cmd+, (macOS) / Ctrl+, (other) — global toggle. Suppressed while the
   // profile editor modal is open so we don't pile a second dialog on top.

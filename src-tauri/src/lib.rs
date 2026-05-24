@@ -179,6 +179,34 @@ pub fn expand_path(raw: &str) -> PathBuf {
     PathBuf::from(raw)
 }
 
+/// Where `terminals.yaml` and `settings.yaml` live on disk.
+///
+/// By default this is Tauri's `app_config_dir()` (on macOS that's
+/// `~/Library/Application Support/<identifier>/`). The `LOWCAL_CONFIG_DIR`
+/// environment variable overrides it for demo / screenshot / scratch
+/// instances — set it before launching the app and **both** YAML files
+/// (and any future sibling file) will be read/written from there instead.
+/// `~/` is expanded the same way it is for profile `cwd` so users can type
+/// `LOWCAL_CONFIG_DIR=~/lowcal-demo` without resolving `$HOME` themselves.
+///
+/// Both `setup(...)` (terminals.yaml) and `app_settings::settings_path`
+/// (settings.yaml) call this so the override is honoured for the full
+/// on-disk surface, not just one file.
+pub(crate) fn resolved_app_config_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Ok(raw) = std::env::var("LOWCAL_CONFIG_DIR") {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let dir = expand_path(trimmed);
+            tracing::info!(
+                "LOWCAL_CONFIG_DIR override active — config dir = {}",
+                dir.display()
+            );
+            return Ok(dir);
+        }
+    }
+    app.path().app_config_dir().map_err(|e| e.to_string())
+}
+
 /// Canonical absolute cwd for UI (same expansion as spawning a PTY). Non-existent paths keep the expanded path without canonicalizing.
 #[tauri::command]
 fn resolve_working_directory(raw: Option<String>) -> Result<Option<String>, String> {
@@ -2074,8 +2102,7 @@ pub fn run() {
             emit_quit_confirmation(&app, running);
         })
         .setup(|app| {
-            let resolver = app.path().clone();
-            let config_dir = resolver.app_config_dir().map_err(|e| e.to_string())?;
+            let config_dir = resolved_app_config_dir(app.handle())?;
             fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
             let config_path = config_dir.join("terminals.yaml");
 

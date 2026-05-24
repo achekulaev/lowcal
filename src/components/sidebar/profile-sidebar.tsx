@@ -277,7 +277,7 @@ export function ProfileSidebar(props: {
               className="sidebar-add-icon-btn sidebar-add-icon-btn-sm"
               onClick={openCreateModal}
               aria-label="New terminal"
-              title="New terminal"
+              title="New terminal (⌘T, ⌘=)"
             >
               <NewTerminalIcon />
             </button>
@@ -334,7 +334,7 @@ export function ProfileSidebar(props: {
               className="sidebar-add-icon-btn"
               onClick={openCreateModal}
               aria-label="New terminal"
-              title="New terminal"
+              title="New terminal (⌘T, ⌘=)"
             >
               <NewTerminalIcon />
             </button>

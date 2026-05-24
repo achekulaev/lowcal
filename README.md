@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="src-tauri/icons/128x128@2x.png" alt="Lowcal app icon" width="160" />
+</p>
+
 # Lowcal Terminal Orchestrator
 
 A small desktop app for keeping a tidy stable of dev terminals — one tab per
@@ -15,7 +19,7 @@ shell and the PTY layer (`portable-pty`) are cross-platform; Windows / Linux
 builds should work and just won't get the macOS-specific chrome polish.
 
 <p align="center">
-  <img src="src-tauri/icons/128x128@2x.png" alt="Lowcal app icon" width="160" />
+  <img src="src-tauri/icons/128x128@2x.png" alt="Lowcal Terminal Orchestrator UI" width="450" />
 </p>
 
 ---
@@ -35,7 +39,7 @@ keep a free shell for ad-hoc"*, the friction adds up:
 - When something exits with a non-zero code in the background, you don't
   notice until you switch back to its tab.
 
-Lowcal makes each of those things a button:
+Lowcal Terminal Orchestrator makes each of those things a button:
 
 - The command, cwd, env and tags live in a YAML file the app owns.
 - Each tab gets its own persistent login shell, so scrollback survives Stop.
@@ -211,6 +215,8 @@ profiles:
 
 | Shortcut | Action |
 |------|------|
+| `Cmd+T` / `Ctrl+T` | Open **New terminal** (create profile). |
+| `Cmd+=` / `Ctrl+=` | Same as **New terminal**. |
 | `Cmd+F` / `Ctrl+F` | Focus sidebar profile filter (flat-results mode). |
 | `Esc` | In the filter: clear and close. In the editor modal: cancel. |
 | `Cmd+Enter` / `Ctrl+Enter` | In the editor modal: save. |
