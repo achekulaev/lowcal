@@ -157,6 +157,15 @@ pub struct AppStateInner {
     /// second `CloseRequested` (triggered by `window.destroy()`) short-circuit
     /// instead of re-prompting.
     close_confirmed: AtomicBool,
+    /// Profile ids whose `start_command_on_app_open` auto-start is currently
+    /// **in flight** inside `apply_startup_profile_actions` — the long
+    /// `wait_for_login_shell_ready` + `wait_until_broadcast_receiver_idle`
+    /// pipeline runs before `command_running` flips to `true`, so during that
+    /// window the close-confirmation handler would otherwise miss them. The
+    /// id is removed (via `StartupPendingGuard`) as soon as
+    /// `start_profile_inner` returns (success or error), and `running_profile_names`
+    /// unions this set into the running list so quit-during-launch still prompts.
+    startup_pending: Mutex<HashSet<String>>,
 }
 
 pub type SharedState = Arc<AppStateInner>;
@@ -254,6 +263,7 @@ impl AppStateInner {
             sessions: Mutex::new(HashMap::new()),
             ws_port: AtomicU16::new(0),
             close_confirmed: AtomicBool::new(false),
+            startup_pending: Mutex::new(HashSet::new()),
         })
     }
 
@@ -485,12 +495,19 @@ fn config_file_event_targets_path(event: &notify::Event, config_path: &Path) -> 
     event.paths.iter().any(|p| p.as_path() == config_path)
 }
 
-/// Snapshot of display names for profiles whose Start-injected command is
-/// currently live (`command_running == true`). Iterates `cfg.profiles` so
-/// the order matches the YAML / sidebar list rather than the unordered
-/// `sessions` map.
+/// Snapshot of display names for profiles the close-confirmation prompt
+/// considers "running": either their Start-injected command is live
+/// (`command_running == true`), or their `start_command_on_app_open` is
+/// currently being processed by `apply_startup_profile_actions` (i.e. the id
+/// is in `startup_pending`). The latter covers the multi-second window
+/// between app launch and the actual `inject_profile_command` call where
+/// `command_running` hasn't flipped yet but the user still expects the
+/// command to be running on quit. Iterates `cfg.profiles` so the order
+/// matches the YAML / sidebar list rather than the unordered `sessions` /
+/// `startup_pending` maps.
 fn running_profile_names(state: &SharedState) -> Vec<String> {
     let sessions = state.sessions.lock();
+    let pending = state.startup_pending.lock();
     let cfg = state.config.read();
     cfg.profiles
         .iter()
@@ -499,7 +516,8 @@ fn running_profile_names(state: &SharedState) -> Vec<String> {
                 .get(&p.id)
                 .map(|rt| rt.command_running.load(Ordering::SeqCst))
                 .unwrap_or(false);
-            live.then(|| p.display_name.clone())
+            let starting = pending.contains(&p.id);
+            (live || starting).then(|| p.display_name.clone())
         })
         .collect()
 }
@@ -639,6 +657,7 @@ fn spawn_config_file_watcher(app: AppHandle, state: SharedState, config_path: Pa
                         .blocking_show();
                     continue;
                 }
+                apply_startup_profile_actions(&app, &state);
                 emit_profiles(&app, &state);
             } else if let Err(e) = state.persist_memory_to_disk() {
                 app.dialog()
@@ -1342,6 +1361,74 @@ fn ensure_shell_session_impl(app: &AppHandle, state: &SharedState, profile_id: &
     spawn_shell_session(app, state, profile_id)
 }
 
+/// RAII guard that registers a profile id in `state.startup_pending` while
+/// `apply_startup_profile_actions` is mid-`start_profile_inner` and removes
+/// it on drop — including the early-`?` and panic paths. The close-confirm
+/// handler unions this set with `command_running == true` so the prompt
+/// fires for `start_command_on_app_open` profiles whose injection hasn't
+/// flipped `command_running` yet (the `wait_for_login_shell_ready` +
+/// `wait_until_broadcast_receiver_idle` pipeline can take several seconds).
+#[cfg(not(mobile))]
+struct StartupPendingGuard<'a> {
+    state: &'a SharedState,
+    id: String,
+}
+
+#[cfg(not(mobile))]
+impl<'a> StartupPendingGuard<'a> {
+    fn new(state: &'a SharedState, id: String) -> Self {
+        state.startup_pending.lock().insert(id.clone());
+        Self { state, id }
+    }
+}
+
+#[cfg(not(mobile))]
+impl<'a> Drop for StartupPendingGuard<'a> {
+    fn drop(&mut self) {
+        self.state.startup_pending.lock().remove(&self.id);
+    }
+}
+
+/// Warm idle shells and/or run saved commands for profiles configured for app launch (desktop).
+#[cfg(not(mobile))]
+fn apply_startup_profile_actions(app: &AppHandle, state: &SharedState) {
+    let plan: Vec<(String, bool, bool)> = {
+        let cfg = state.config.read();
+        cfg.profiles
+            .iter()
+            .map(|p| {
+                (
+                    p.id.clone(),
+                    p.warm_on_start,
+                    p.start_command_on_app_open,
+                )
+            })
+            .collect()
+    };
+    for (id, warm, run_command) in plan {
+        if run_command {
+            // Hold a startup-pending entry for the entirety of `start_profile_inner`
+            // (which runs the shell-ready + broadcast-idle waits before flipping
+            // `command_running`). Dropped automatically on success / `Err` / panic.
+            let _pending = StartupPendingGuard::new(state, id.clone());
+            if let Err(e) = start_profile_inner(app, state, &id) {
+                tracing::warn!(
+                    error = %e,
+                    profile_id = %id,
+                    "start-command-on-app-open: failed"
+                );
+            }
+        } else if warm {
+            if let Err(e) = ensure_shell_session_impl(app, state, &id) {
+                tracing::warn!(
+                    error = %e,
+                    profile_id = %id,
+                    "warm-on-start: failed to spawn shell session"
+                );
+            }
+        }
+    }
+}
 
 /// POSIX-safe single-quoted form of `s`: wraps in `'...'` and escapes embedded `'` as
 /// `'"'"'`. Used to splice an assigned cwd into the `cd '<cwd>' && <command>` prefix that
@@ -2217,6 +2304,11 @@ pub fn run() {
 
             #[cfg(not(mobile))]
             {
+                let app_handle = app.handle().clone();
+                let state_for_launch = Arc::clone(&shared);
+                std::thread::spawn(move || {
+                    apply_startup_profile_actions(&app_handle, &state_for_launch);
+                });
                 spawn_config_file_watcher(app.handle().clone(), Arc::clone(&state), config_path);
             }
 

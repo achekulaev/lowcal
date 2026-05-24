@@ -42,21 +42,6 @@ export function useTerminalSessionGlue(profiles: ProfileDto[], selectedId: strin
     setBridgeReady((p) => ({ ...p, [id]: true }));
   }, []);
 
-  /**
-   * Track which profiles have already been auto-initialized on this app session so
-   * the effect below doesn't re-fire on subsequent `profiles` or `bridgeReady` updates.
-   * `startCommandOnAppOpen` → call `start_profile` once the bridge is live.
-   * `warmOnStart`           → call `ensure_shell_session` once the bridge is live
-   *                           (the PTY is already mounted; this is a no-op if the
-   *                           shell spawned during mount, but ensures it's up).
-   *
-   * We intentionally don't reset this ref on config-file reload because the watcher
-   * destroys all sessions first, then re-emits profiles — the profile rows will
-   * disappear briefly and re-appear as new entries, which clears their `bridgeReady`
-   * state, so they'll naturally re-trigger the effect when the bridge reconnects.
-   */
-  const autoInitDoneRef = useRef<Set<string>>(new Set());
-
   const notePtyOutput = useCallback((id: string) => {
     lastPtyOutputMsRef.current[id] = Date.now();
     if (ptyActivityBumpRafRef.current != null) return;
@@ -102,57 +87,6 @@ export function useTerminalSessionGlue(profiles: ProfileDto[], selectedId: strin
       cancelled = true;
     };
   }, [selectedId]);
-
-  /**
-   * Auto-init effect: replaces the old Rust-side `apply_startup_profile_actions`.
-   *
-   * Phase 1 (runs whenever profiles change): add `warmOnStart` and
-   * `startCommandOnAppOpen` profiles to the opened set so their xterm layer
-   * mounts and the WebSocket bridge connects. Also call `ensure_shell_session`
-   * immediately — the PTY needs to exist before the bridge can subscribe.
-   *
-   * Phase 2 (runs whenever bridgeReady changes): once a profile's WS bridge is
-   * live (xterm is subscribed and listening), fire the actual command:
-   *   - `startCommandOnAppOpen` → `start_profile` (equivalent to pressing Start)
-   *   - `warmOnStart`           → nothing extra; shell is already ensured above
-   *
-   * Using `bridgeReady` as the gate means the inject only happens after xterm
-   * has an active WS subscription, so all PTY output — including the injected
-   * command's echo — is seen by xterm from the very first byte.
-   */
-  useEffect(() => {
-    const autoInitProfiles = profiles.filter(
-      (p) => p.startCommandOnAppOpen || p.warmOnStart,
-    );
-    if (autoInitProfiles.length === 0) return;
-
-    // Phase 1: mount xterm + connect WS for auto-init profiles.
-    setOpenedProfileIds((prev) => {
-      const additions = autoInitProfiles.map((p) => p.id).filter((id) => !prev.includes(id));
-      return additions.length === 0 ? prev : [...prev, ...additions];
-    });
-    for (const p of autoInitProfiles) {
-      void invoke("ensure_shell_session", { id: p.id })
-        .then(() => {
-          setShellEnsured((prev) => ({ ...prev, [p.id]: true }));
-        })
-        .catch((e) => {
-          console.error("auto-init ensure_shell_session failed", p.id, e);
-        });
-    }
-
-    // Phase 2: once bridge is live, invoke start_profile for startCommandOnAppOpen.
-    for (const p of autoInitProfiles) {
-      if (!p.startCommandOnAppOpen) continue;
-      if (autoInitDoneRef.current.has(p.id)) continue;
-      if (!bridgeReady[p.id]) continue;
-
-      autoInitDoneRef.current.add(p.id);
-      void invoke("start_profile", { id: p.id }).catch((e) => {
-        console.error("auto-init start_profile failed", p.id, e);
-      });
-    }
-  }, [profiles, bridgeReady]);
 
   useEffect(() => {
     const runningIds = profiles.filter((p) => p.status === "running").map((p) => p.id);
@@ -202,11 +136,6 @@ export function useTerminalSessionGlue(profiles: ProfileDto[], selectedId: strin
     const outMs = lastPtyOutputMsRef.current;
     for (const k of Object.keys(outMs)) {
       if (!valid.has(k)) delete outMs[k];
-    }
-    // When a profile disappears (config reload / delete), clear its auto-init
-    // record so it will re-trigger when the profile returns.
-    for (const k of [...autoInitDoneRef.current]) {
-      if (!valid.has(k)) autoInitDoneRef.current.delete(k);
     }
   }, [profiles]);
 
