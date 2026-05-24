@@ -5,6 +5,7 @@ import {
   SidebarTabRunIcon,
   StartPendingSpinner,
   NewTerminalIcon,
+  SettingsGearIcon,
   SidebarSearchIcon,
   SidebarCloseFilterIcon,
   StopSquareIcon,
@@ -164,6 +165,7 @@ export function ProfileSidebar(props: {
   lastPtyOutputMsRef: MutableRefObject<Record<string, number>>;
   resolvedTheme: ResolvedTheme;
   onStopAll: () => void;
+  onOpenSettings: () => void;
   onStartTag: (tag: string) => void;
   onStopTag: (tag: string) => void;
   onRestartTag: (tag: string) => void;
@@ -189,6 +191,7 @@ export function ProfileSidebar(props: {
     lastPtyOutputMsRef,
     resolvedTheme,
     onStopAll,
+    onOpenSettings,
     onStartTag,
     onStopTag,
     onRestartTag,
@@ -337,6 +340,23 @@ export function ProfileSidebar(props: {
             </button>
           </div>
         ) : null}
+      </div>
+      {/*
+       * App-level controls live here — separate from the top header which
+       * carries list operations (filter / Stop all / New). Mirrors the
+       * VSCode / Slack / Discord / Mail.app pattern: settings always at the
+       * bottom-left of the sidebar.
+       */}
+      <div className="sidebar-foot">
+        <button
+          type="button"
+          className="sidebar-foot-btn"
+          onClick={onOpenSettings}
+          aria-label="Open settings"
+          title="Settings (⌘,)"
+        >
+          <SettingsGearIcon />
+        </button>
       </div>
     </aside>
   );

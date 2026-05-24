@@ -28,6 +28,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 
+mod app_settings;
 mod broadcast_idle;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,6 +153,19 @@ pub struct AppStateInner {
     config: RwLock<Config>,
     sessions: Mutex<HashMap<String, SessionRuntime>>,
     ws_port: AtomicU16,
+    /// Set to `true` once the user has confirmed Quit-with-running. Lets the
+    /// second `CloseRequested` (triggered by `window.destroy()`) short-circuit
+    /// instead of re-prompting.
+    close_confirmed: AtomicBool,
+    /// Profile ids whose `start_command_on_app_open` auto-start is currently
+    /// **in flight** inside `apply_startup_profile_actions` — the long
+    /// `wait_for_login_shell_ready` + `wait_until_broadcast_receiver_idle`
+    /// pipeline runs before `command_running` flips to `true`, so during that
+    /// window the close-confirmation handler would otherwise miss them. The
+    /// id is removed (via `StartupPendingGuard`) as soon as
+    /// `start_profile_inner` returns (success or error), and `running_profile_names`
+    /// unions this set into the running list so quit-during-launch still prompts.
+    startup_pending: Mutex<HashSet<String>>,
 }
 
 pub type SharedState = Arc<AppStateInner>;
@@ -220,6 +234,8 @@ impl AppStateInner {
             config: RwLock::new(config),
             sessions: Mutex::new(HashMap::new()),
             ws_port: AtomicU16::new(0),
+            close_confirmed: AtomicBool::new(false),
+            startup_pending: Mutex::new(HashSet::new()),
         })
     }
 
@@ -449,6 +465,68 @@ fn config_file_event_targets_path(event: &notify::Event, config_path: &Path) -> 
         return false;
     }
     event.paths.iter().any(|p| p.as_path() == config_path)
+}
+
+/// Snapshot of display names for profiles the close-confirmation prompt
+/// considers "running": either their Start-injected command is live
+/// (`command_running == true`), or their `start_command_on_app_open` is
+/// currently being processed by `apply_startup_profile_actions` (i.e. the id
+/// is in `startup_pending`). The latter covers the multi-second window
+/// between app launch and the actual `inject_profile_command` call where
+/// `command_running` hasn't flipped yet but the user still expects the
+/// command to be running on quit. Iterates `cfg.profiles` so the order
+/// matches the YAML / sidebar list rather than the unordered `sessions` /
+/// `startup_pending` maps.
+fn running_profile_names(state: &SharedState) -> Vec<String> {
+    let sessions = state.sessions.lock();
+    let pending = state.startup_pending.lock();
+    let cfg = state.config.read();
+    cfg.profiles
+        .iter()
+        .filter_map(|p| {
+            let live = sessions
+                .get(&p.id)
+                .map(|rt| rt.command_running.load(Ordering::SeqCst))
+                .unwrap_or(false);
+            let starting = pending.contains(&p.id);
+            (live || starting).then(|| p.display_name.clone())
+        })
+        .collect()
+}
+
+/// Asks the frontend to surface the in-app **Quit confirmation** modal. Emits
+/// `confirm-quit` with the list of running profile display names; the UI in
+/// [`src/components/quit-confirm-modal.tsx`] listens for this event, opens the
+/// React modal, and on **OK** the user invokes the `confirm_quit_proceed`
+/// Tauri command — which is the only path that actually calls `app.exit(0)`.
+/// On **Cancel** the frontend just closes the modal locally; nothing else
+/// needs to be told because each quit route already prevented its respective
+/// close/exit before emitting.
+///
+/// We deliberately use a custom React modal instead of a native NSAlert so
+/// the dialog is wide enough for `"Quit Lowcal Terminal Orchestrator?"` to
+/// stay on a single line and follows the app's theme. The native
+/// `tauri-plugin-dialog` `MessageDialog` doesn't expose width controls and
+/// `NSAlert` auto-sizes to its body content, which sometimes wrapped the
+/// title.
+fn emit_quit_confirmation(app: &AppHandle, running: Vec<String>) {
+    if let Err(e) = app.emit("confirm-quit", running) {
+        // If the emit fails (window already gone, etc.), there's no UI to
+        // confirm in — log and stay running. The user can retry the quit.
+        tracing::warn!(error = %e, "failed to emit confirm-quit event");
+    }
+}
+
+/// Frontend → backend bridge for the **OK / Quit anyway** action of the
+/// custom quit-confirmation modal. Sets the one-shot bypass flag so the next
+/// `WindowEvent::CloseRequested` / `RunEvent::ExitRequested` short-circuits
+/// without re-prompting, then triggers the standard Tauri exit path. **Cancel**
+/// has no backend counterpart — the modal just closes locally.
+#[tauri::command]
+async fn confirm_quit_proceed(app: AppHandle, state: tauri::State<'_, SharedState>) -> Result<(), String> {
+    state.close_confirmed.store(true, Ordering::SeqCst);
+    app.exit(0);
+    Ok(())
 }
 
 #[cfg(not(mobile))]
@@ -1090,6 +1168,34 @@ fn ensure_shell_session_impl(app: &AppHandle, state: &SharedState, profile_id: &
     spawn_shell_session(app, state, profile_id)
 }
 
+/// RAII guard that registers a profile id in `state.startup_pending` while
+/// `apply_startup_profile_actions` is mid-`start_profile_inner` and removes
+/// it on drop — including the early-`?` and panic paths. The close-confirm
+/// handler unions this set with `command_running == true` so the prompt
+/// fires for `start_command_on_app_open` profiles whose injection hasn't
+/// flipped `command_running` yet (the `wait_for_login_shell_ready` +
+/// `wait_until_broadcast_receiver_idle` pipeline can take several seconds).
+#[cfg(not(mobile))]
+struct StartupPendingGuard<'a> {
+    state: &'a SharedState,
+    id: String,
+}
+
+#[cfg(not(mobile))]
+impl<'a> StartupPendingGuard<'a> {
+    fn new(state: &'a SharedState, id: String) -> Self {
+        state.startup_pending.lock().insert(id.clone());
+        Self { state, id }
+    }
+}
+
+#[cfg(not(mobile))]
+impl<'a> Drop for StartupPendingGuard<'a> {
+    fn drop(&mut self) {
+        self.state.startup_pending.lock().remove(&self.id);
+    }
+}
+
 /// Warm idle shells and/or run saved commands for profiles configured for app launch (desktop).
 #[cfg(not(mobile))]
 fn apply_startup_profile_actions(app: &AppHandle, state: &SharedState) {
@@ -1108,6 +1214,10 @@ fn apply_startup_profile_actions(app: &AppHandle, state: &SharedState) {
     };
     for (id, warm, run_command) in plan {
         if run_command {
+            // Hold a startup-pending entry for the entirety of `start_profile_inner`
+            // (which runs the shell-ready + broadcast-idle waits before flipping
+            // `command_running`). Dropped automatically on success / `Err` / panic.
+            let _pending = StartupPendingGuard::new(state, id.clone());
             if let Err(e) = start_profile_inner(app, state, &id) {
                 tracing::warn!(
                     error = %e,
@@ -1807,12 +1917,162 @@ fn init_stdio_tracing() {
     }
 }
 
+/// macOS-only: install a Preferences… entry (Cmd+,) and a **custom** Quit
+/// entry (Cmd+Q) into the App submenu of the default Tauri menu. Mutates
+/// `Menu::default(...)` in place rather than rebuilding the whole bar so we
+/// don't have to maintain Edit / View / Window / Help submenus by hand.
+///
+/// **Why a custom Quit?** The default `PredefinedMenuItem::quit(...)` is wired
+/// to NSApp's `terminate:` selector. `terminate:` calls
+/// `applicationShouldTerminate:` on the delegate, but Tao's macOS delegate
+/// (`tao::platform_impl::macos::app_delegate`) only implements
+/// `applicationWillTerminate:` — by the time that fires the decision to exit
+/// has already been made. The result is that `WindowEvent::CloseRequested` and
+/// `RunEvent::ExitRequested` both *fail to fire* for Cmd+Q / native-menu
+/// Quit, so any close-confirmation logic on those events is silently
+/// bypassed. By attaching a custom item with id `"quit"` and accelerator
+/// `CmdOrCtrl+Q`, Cmd+Q routes through `on_menu_event` instead, where we can
+/// run the same close-confirm logic and only call `app.exit(0)` when the
+/// user has confirmed.
+///
+/// The Preferences click — and the system-routed Cmd+, accelerator — emit an
+/// `open-settings` event the frontend already listens for; the in-WebView
+/// keydown handler in `App.tsx` is the cross-platform fallback.
+#[cfg(target_os = "macos")]
+fn install_macos_app_menu(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{
+        Menu, MenuItemBuilder, MenuItemKind, PredefinedMenuItem,
+    };
+
+    let handle = app.handle();
+    let menu = Menu::default(handle)?;
+
+    let prefs = MenuItemBuilder::with_id("preferences", "Preferences…")
+        .accelerator("CmdOrCtrl+,")
+        .build(handle)?;
+    let sep = PredefinedMenuItem::separator(handle)?;
+    // Title mirrors the predefined Quit item (`format!("Quit {}", app_name())`
+    // — see muda's macOS impl). Hard-coded "Lowcal" because the in-window UI
+    // already uses the lowercase-c branding for everything user-facing.
+    let custom_quit = MenuItemBuilder::with_id("quit", "Quit Lowcal")
+        .accelerator("CmdOrCtrl+Q")
+        .build(handle)?;
+
+    if let Some(MenuItemKind::Submenu(app_submenu)) = menu.items()?.into_iter().next() {
+        // Position 1 is right after "About <app>" in the default macOS app menu.
+        app_submenu.insert(&prefs, 1)?;
+        app_submenu.insert(&sep, 2)?;
+
+        // Locate and remove the predefined Quit item (whose `text()` starts
+        // with "Quit "). Iterate from the end because Quit is conventionally
+        // the last item in the App submenu on macOS — this is robust to any
+        // future shuffle as long as Quit stays the last predefined entry.
+        let removed_quit = {
+            let items = app_submenu.items()?;
+            items.into_iter().rev().find_map(|kind| match kind {
+                MenuItemKind::Predefined(p)
+                    if p.text()
+                        .ok()
+                        .map(|t| t.starts_with("Quit "))
+                        .unwrap_or(false) =>
+                {
+                    Some(p)
+                }
+                _ => None,
+            })
+        };
+        if let Some(quit) = removed_quit {
+            // `remove` takes `&dyn IsMenuItem`; PredefinedMenuItem implements it.
+            let _ = app_submenu.remove(&quit);
+        }
+        // Append our custom Quit at the end (where the predefined one was).
+        app_submenu.append(&custom_quit)?;
+    } else {
+        // Defensive: if the default layout ever changes shape, just append so
+        // Preferences and Quit are both reachable from the menu bar.
+        let app_submenu = tauri::menu::SubmenuBuilder::new(handle, "App")
+            .item(&prefs)
+            .item(&custom_quit)
+            .build()?;
+        menu.append(&app_submenu)?;
+    }
+
+    menu.set_as_app_menu()?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_stdio_tracing();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .on_menu_event(|app, event| {
+            match event.id().as_ref() {
+                "preferences" => {
+                    // Frontend (App.tsx) listens for `open-settings` and toggles
+                    // the settings modal — same code path as the gear button and
+                    // the in-WebView Cmd+, fallback.
+                    let _ = app.emit("open-settings", ());
+                }
+                "quit" => {
+                    // Custom Quit menu item (see `install_macos_app_menu`).
+                    // Cmd+Q + native-menu Quit click both land here, so we can
+                    // run the same close-confirm flow as the red traffic light
+                    // (`on_window_event`) before actually exiting.
+                    let state_arc: SharedState = match app.try_state::<SharedState>() {
+                        Some(s) => s.inner().clone(),
+                        None => {
+                            app.exit(0);
+                            return;
+                        }
+                    };
+                    if state_arc.close_confirmed.load(Ordering::SeqCst) {
+                        app.exit(0);
+                        return;
+                    }
+                    let running = running_profile_names(&state_arc);
+                    if running.is_empty() {
+                        // Nothing to confirm — exit immediately via the standard
+                        // Tauri exit path (same `app.exit(0)` the modal's OK
+                        // button triggers on confirm).
+                        app.exit(0);
+                        return;
+                    }
+                    emit_quit_confirmation(app, running);
+                }
+                _ => {}
+            }
+        })
+        .on_window_event(|window, event| {
+            // Catches the red traffic light path (and any explicit
+            // `window.close()`). On macOS, **Cmd+Q / native-menu Quit / dock
+            // Quit** do NOT fire `CloseRequested` — they go through the
+            // `terminate:` selector which Tauri surfaces as
+            // `RunEvent::ExitRequested` at the app level. That route is
+            // handled in the `app.run(...)` callback below.
+            let tauri::WindowEvent::CloseRequested { api, .. } = event else { return; };
+            if window.label() != "main" {
+                return;
+            }
+
+            let app = window.app_handle().clone();
+            let state_arc: SharedState = {
+                let Some(state) = app.try_state::<SharedState>() else { return; };
+                state.inner().clone()
+            };
+            if state_arc.close_confirmed.load(Ordering::SeqCst) {
+                return;
+            }
+
+            let running = running_profile_names(&state_arc);
+            if running.is_empty() {
+                return;
+            }
+
+            api.prevent_close();
+            emit_quit_confirmation(&app, running);
+        })
         .setup(|app| {
             let resolver = app.path().clone();
             let config_dir = resolver.app_config_dir().map_err(|e| e.to_string())?;
@@ -1824,6 +2084,13 @@ pub fn run() {
             app.manage(shared.clone());
 
             tauri::async_runtime::spawn(run_axum(shared.clone()));
+
+            #[cfg(target_os = "macos")]
+            {
+                if let Err(e) = install_macos_app_menu(app) {
+                    tracing::warn!("failed to install macOS app menu: {e}");
+                }
+            }
 
             #[cfg(not(mobile))]
             {
@@ -1854,7 +2121,38 @@ pub fn run() {
             delete_profile,
             resolve_working_directory,
             user_home_directory,
+            confirm_quit_proceed,
+            app_settings::get_app_settings,
+            app_settings::set_app_settings,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // Cmd+Q / native-menu Quit / dock right-click → Quit / any other
+            // `terminate:`-style exit on macOS surfaces here as
+            // `RunEvent::ExitRequested` at the app level — it never visits
+            // `WindowEvent::CloseRequested`, which is why the window-level
+            // handler alone wasn't catching Cmd+Q. We mirror the same
+            // confirm-on-running logic here.
+            let tauri::RunEvent::ExitRequested { api, code, .. } = &event else { return; };
+            // `code: Some(_)` means the exit was requested programmatically
+            // (our own `app.exit(0)` after the user confirmed). Pass through
+            // so we don't show a second dialog.
+            if code.is_some() {
+                return;
+            }
+            let state_arc: SharedState = {
+                let Some(state) = app_handle.try_state::<SharedState>() else { return; };
+                state.inner().clone()
+            };
+            if state_arc.close_confirmed.load(Ordering::SeqCst) {
+                return;
+            }
+            let running = running_profile_names(&state_arc);
+            if running.is_empty() {
+                return;
+            }
+            api.prevent_exit();
+            emit_quit_confirmation(app_handle, running);
+        });
 }

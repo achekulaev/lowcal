@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   useCallback,
@@ -8,8 +9,10 @@ import {
   useRef,
   useState,
 } from "react";
+import { AppSettingsModal } from "./components/app-settings-modal";
 import { ProfileContextMenu } from "./components/profile-context-menu";
 import { ProfileEditorModal } from "./components/profile-editor-modal";
+import { QuitConfirmModal } from "./components/quit-confirm-modal";
 import { ProfileSidebar } from "./components/sidebar/profile-sidebar";
 import { TerminalStageHeader } from "./components/terminal/terminal-stage-header";
 import { TerminalWorkArea } from "./components/terminal/terminal-work-area";
@@ -22,8 +25,9 @@ import {
 import { useProfiles } from "./hooks/use-profiles";
 import { useSidebarFilter } from "./hooks/use-sidebar-filter";
 import { useTerminalSessionGlue } from "./hooks/use-terminal-session-glue";
-import { getGlobalSettings } from "./settings/global-settings";
+import type { GlobalSettings } from "./settings/global-settings";
 import { useAppearance } from "./settings/use-appearance";
+import { useGlobalSettings } from "./settings/use-global-settings";
 import type { ProfileDto, ProfileFormState } from "./types/profile";
 import type { ModalMode, ProfileContextMenuState } from "./types/ui";
 import { confirmDeleteProfile } from "./utils/delete-profile-dialog";
@@ -40,11 +44,19 @@ import {
 const MAIN_WINDOW_TITLE_IDLE = "Lowcal Terminal Orchestrator";
 
 export default function App() {
-  // Read the global appearance preference (3-state: system | dark | light) and resolve it
-  // against the live `prefers-color-scheme` value. The hook also writes `data-theme` onto
-  // `<html>` so CSS tokens can switch. There is no settings UI yet; the preference comes
-  // from `getGlobalSettings()` defaults and is recomputed on every render (cheap).
-  const resolvedTheme = useAppearance(getGlobalSettings().appearance.theme);
+  // Live app-wide settings (`<app_config_dir>/settings.yaml`, surfaced by the
+  // gear button + Cmd+, hotkey). `appearance.theme` is fed straight into
+  // `useAppearance` so flipping it from the settings modal re-themes the app
+  // without a remount; `terminal.*` is threaded down to `TerminalWorkArea`.
+  const { settings: globalSettings, updateSettings: updateGlobalSettings } = useGlobalSettings();
+  const resolvedTheme = useAppearance(globalSettings.appearance.theme);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [settingsModalSaving, setSettingsModalSaving] = useState(false);
+  const [settingsModalError, setSettingsModalError] = useState<string | null>(null);
+  // Running-profile names attached to a pending "quit?" prompt. Non-null
+  // while the modal is open. Driven by the `confirm-quit` event from Rust;
+  // see `emit_quit_confirmation` in `src-tauri/src/lib.rs`.
+  const [quitConfirmRunning, setQuitConfirmRunning] = useState<string[] | null>(null);
   const { profiles, refresh } = useProfiles();
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const sidebarFilterApi = useSidebarFilter(modalMode);
@@ -547,6 +559,144 @@ export default function App() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [modalMode, saving, closeModal]);
 
+  const closeSettingsModal = useCallback(() => {
+    setSettingsModalOpen(false);
+    setSettingsModalSaving(false);
+    setSettingsModalError(null);
+  }, []);
+
+  const saveAppSettings = useCallback(
+    async (next: GlobalSettings) => {
+      setSettingsModalError(null);
+      setSettingsModalSaving(true);
+      try {
+        await updateGlobalSettings(next);
+        closeSettingsModal();
+      } catch (e) {
+        setSettingsModalError(formatUserFacingError(e));
+      } finally {
+        setSettingsModalSaving(false);
+      }
+    },
+    [closeSettingsModal, updateGlobalSettings],
+  );
+
+  // Cmd+, (macOS) / Ctrl+, (other) — global toggle. Suppressed while the
+  // profile editor modal is open so we don't pile a second dialog on top.
+  // On macOS the native menu accelerator wins (the keystroke never reaches
+  // the WebView) and the `open-settings` listener below is the path that
+  // fires; this DOM listener is the cross-platform fallback for Linux /
+  // Windows where there's no native app menu Preferences entry.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== ",") return;
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (modalMode) return;
+      e.preventDefault();
+      setSettingsModalOpen((prev) => !prev);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [modalMode]);
+
+  // Tauri menu — `LowCal → Preferences…` (or its accelerator) emits
+  // `open-settings` from the Rust side. Same toggle semantics as the gear
+  // button + the keydown fallback above; suppressed while the profile editor
+  // modal is open to avoid stacking a second dialog on top.
+  useEffect(() => {
+    let alive = true;
+    let unlisten: (() => void) | undefined;
+    listen("open-settings", () => {
+      if (!alive) return;
+      if (modalMode) return;
+      setSettingsModalOpen((prev) => !prev);
+    }).then((u) => {
+      if (alive) unlisten = u;
+      else u();
+    });
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, [modalMode]);
+
+  // Rust emits `confirm-quit` from the three quit handlers (red traffic
+  // light / Cmd+Q / `RunEvent::ExitRequested`) when at least one profile's
+  // Start-injected command is still running. Payload is the list of running
+  // display names. The handlers in Rust have already prevented their
+  // respective close/exit, so we only need to render the modal and wait for
+  // the user to confirm or cancel.
+  useEffect(() => {
+    let alive = true;
+    let unlisten: (() => void) | undefined;
+    listen<string[]>("confirm-quit", (ev) => {
+      if (!alive) return;
+      setQuitConfirmRunning(ev.payload);
+    }).then((u) => {
+      if (alive) unlisten = u;
+      else u();
+    });
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, []);
+
+  const cancelQuitConfirm = useCallback(() => {
+    setQuitConfirmRunning(null);
+  }, []);
+
+  const confirmQuitConfirm = useCallback(() => {
+    setQuitConfirmRunning(null);
+    void invoke("confirm_quit_proceed").catch((e) => {
+      console.error(e);
+      void notifyUserError(e);
+    });
+  }, []);
+
+  // Esc cancels the quit-confirmation modal. Click-outside on the backdrop
+  // is handled inside `<QuitConfirmModal>`; Enter is handled by the focused
+  // OK button.
+  useEffect(() => {
+    if (quitConfirmRunning === null) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        cancelQuitConfirm();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [quitConfirmRunning, cancelQuitConfirm]);
+
+  // Esc closes the settings modal; Cmd+Enter triggers Save by submitting the
+  // settings form. Scoped to when the modal is open and not currently saving.
+  useEffect(() => {
+    if (!settingsModalOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (settingsModalSaving) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeSettingsModal();
+        return;
+      }
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        const form = document.getElementById(
+          "app-settings-modal-form",
+        ) as HTMLFormElement | null;
+        if (!form) return;
+        e.preventDefault();
+        if (typeof form.requestSubmit === "function") {
+          form.requestSubmit();
+        } else {
+          form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+        }
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [settingsModalOpen, settingsModalSaving, closeSettingsModal]);
+
   const pickWorkingDirectory = async () => {
     try {
       const trimmed = form.cwd.trim();
@@ -647,6 +797,7 @@ export default function App() {
           lastPtyOutputMsRef={lastPtyOutputMsRef}
           resolvedTheme={resolvedTheme}
           onStopAll={stopAllFromSidebar}
+          onOpenSettings={() => setSettingsModalOpen(true)}
           onStartTag={startTagFromSidebar}
           onStopTag={stopTagFromSidebar}
           onRestartTag={restartTagFromSidebar}
@@ -673,6 +824,7 @@ export default function App() {
             bridgeReady={bridgeReady}
             wsGenerationByProfile={wsGenerationByProfile}
             resolvedTheme={resolvedTheme}
+            terminalSettings={globalSettings.terminal}
             onTerminalBridgeOpen={onTerminalBridgeOpen}
             onPtyOutput={notePtyOutput}
             registerTerminalClearHandler={registerTerminalClearHandler}
@@ -702,6 +854,22 @@ export default function App() {
         pickWorkingDirectory={pickWorkingDirectory}
         profileModalFirstFieldRef={profileModalFirstFieldRef}
         selectedForHint={selectedForModalHint}
+      />
+
+      <AppSettingsModal
+        open={settingsModalOpen}
+        settings={globalSettings}
+        saving={settingsModalSaving}
+        saveError={settingsModalError}
+        onClose={closeSettingsModal}
+        onSave={saveAppSettings}
+      />
+
+      <QuitConfirmModal
+        open={quitConfirmRunning !== null}
+        runningProfiles={quitConfirmRunning ?? []}
+        onCancel={cancelQuitConfirm}
+        onConfirm={confirmQuitConfirm}
       />
     </div>
   );

@@ -3,9 +3,9 @@ import { Terminal, type IDisposable } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import {
-  getGlobalSettings,
   xtermOptionsFromGlobalSettings,
   xtermThemeForResolved,
+  type GlobalSettings,
   type ResolvedTheme,
 } from "../../settings/global-settings";
 import { waitWsOrigin } from "../../tauri/wait-ws-origin";
@@ -16,12 +16,18 @@ import { base64ToUint8Array, utf8ToBase64 } from "../../utils/ws-encoding";
  * YAML profile command. `wsGeneration` forces a reconnect after the backend replaces the shell.
  * `resolvedTheme` is the live `dark | light` value from `useAppearance`; the xterm palette is
  * swapped via `term.options.theme = ...` so the running terminal flips colors without remount.
+ *
+ * `terminalSettings` (scrollback / fontFamily / fontSize) is read **once at construction**:
+ * changing settings only affects newly opened tabs by design — see
+ * `.cursor/decisions/app-settings-persistence.md`. The value is captured in a ref so the
+ * mount effect's dep list stays stable.
  */
 export function ProfileTerminalSession({
   profileId,
   isForeground,
   wsGeneration,
   resolvedTheme,
+  terminalSettings,
   onBridgeOpen,
   onPtyOutput,
   registerTerminalClearHandler,
@@ -30,6 +36,7 @@ export function ProfileTerminalSession({
   isForeground: boolean;
   wsGeneration: number;
   resolvedTheme: ResolvedTheme;
+  terminalSettings: GlobalSettings["terminal"];
   onBridgeOpen: (profileId: string) => void;
   onPtyOutput: (profileId: string) => void;
   registerTerminalClearHandler: (profileId: string, handler: (() => void) | null) => void;
@@ -46,6 +53,9 @@ export function ProfileTerminalSession({
   onPtyOutputRef.current = onPtyOutput;
   const isForegroundRef = useRef(isForeground);
   isForegroundRef.current = isForeground;
+  // Capture terminal options at first render. Subsequent updates are ignored
+  // by design — see the file-level comment + decision doc.
+  const terminalSettingsAtMountRef = useRef(terminalSettings);
 
   useLayoutEffect(() => {
     if (!isForeground) return;
@@ -76,7 +86,7 @@ export function ProfileTerminalSession({
     if (!host) return;
 
     const term = new Terminal({
-      ...xtermOptionsFromGlobalSettings(getGlobalSettings().terminal, resolvedTheme),
+      ...xtermOptionsFromGlobalSettings(terminalSettingsAtMountRef.current, resolvedTheme),
       cursorBlink: true,
     });
     const fit = new FitAddon();

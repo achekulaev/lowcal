@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { TERMINAL_FIRST_REVEAL_HOLD_MS } from "../../constants/terminal-ui";
-import type { ResolvedTheme } from "../../settings/global-settings";
+import type { GlobalSettings, ResolvedTheme } from "../../settings/global-settings";
 import type { ProfileDto } from "../../types/profile";
 import { EmptyStateTerminalIcon } from "../profile-icons";
 import { ProfileTerminalSession } from "./profile-terminal-session";
@@ -14,6 +14,7 @@ export function TerminalWorkArea({
   bridgeReady,
   wsGenerationByProfile,
   resolvedTheme,
+  terminalSettings,
   onTerminalBridgeOpen,
   onPtyOutput,
   registerTerminalClearHandler,
@@ -25,6 +26,7 @@ export function TerminalWorkArea({
   bridgeReady: Record<string, boolean>;
   wsGenerationByProfile: Record<string, number>;
   resolvedTheme: ResolvedTheme;
+  terminalSettings: GlobalSettings["terminal"];
   onTerminalBridgeOpen: (profileId: string) => void;
   onPtyOutput: (profileId: string) => void;
   registerTerminalClearHandler: (profileId: string, handler: (() => void) | null) => void;
@@ -160,6 +162,7 @@ export function TerminalWorkArea({
               isForeground={foregroundLayerId === id}
               wsGeneration={wsGenerationByProfile[id] ?? 0}
               resolvedTheme={resolvedTheme}
+              terminalSettings={terminalSettings}
               onBridgeOpen={onTerminalBridgeOpen}
               onPtyOutput={onPtyOutput}
               registerTerminalClearHandler={registerTerminalClearHandler}

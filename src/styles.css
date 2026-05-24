@@ -459,6 +459,58 @@ body {
   color: var(--stopped-hover);
 }
 
+/*
+ * Sidebar footer — app-level controls (currently just Settings).
+ * Pinned to the bottom of the `.sidebar` flex column via natural source
+ * order; `.profile-list` (flex: 1) takes all the in-between space, so the
+ * footer reliably sits at the bottom whether the list is empty or scrolling.
+ * Visual pattern matches VSCode / Cursor / Slack / Mail.app: a thin top
+ * border separates it from the list, and the button is *flat* (no pill
+ * fill) so it doesn't compete with profile rows for visual weight.
+ */
+.sidebar-foot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.sidebar-foot-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    color 0.12s ease,
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.sidebar-foot-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.sidebar-foot-btn:hover {
+  color: var(--accent);
+  background: var(--button-fill-hover);
+}
+
+.sidebar-foot-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* ── Tag folder tree ─────────────────────────────────────────────────────
  * `profile-tree` replaces the flat `profile-list` when no text query is
  * active. Each `tag-folder` row is a chevron + tag-coloured label + a
@@ -1580,6 +1632,80 @@ body {
   font-size: 0.72rem;
   color: var(--muted);
   padding: 0 1rem 0.35rem;
+}
+
+/* App settings modal — section grouping (Appearance / Terminal). */
+.modal-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.modal-section-title {
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.3rem;
+}
+
+.modal-section + .modal-section {
+  margin-top: 0.4rem;
+}
+
+.modal-field input[type="number"],
+.modal-field select {
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-family: inherit;
+}
+
+.modal-field select {
+  /* Browser-native dropdown — `color-scheme` on `<html>` (set by useAppearance)
+     already routes the OS chevron to the correct light/dark variant. */
+  appearance: auto;
+  cursor: pointer;
+}
+
+.modal-footer-secondary {
+  margin-right: auto;
+}
+
+/*
+ * Quit-confirmation modal (`QuitConfirmModal`). Wider than the default
+ * 520 px `.modal-dialog` so "Quit Lowcal Terminal Orchestrator?" stays on one
+ * line, and the running-profile list reads as a clean bullet column rather
+ * than a wrapped sentence.
+ */
+.modal-dialog.quit-confirm-dialog {
+  width: min(560px, 100%);
+}
+
+.quit-confirm-lede {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.quit-confirm-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.quit-confirm-list li {
+  line-height: 1.35;
 }
 
 .profile-context-menu {

@@ -56,13 +56,23 @@ const defaultGlobalAppearanceSettings: GlobalAppearanceSettings = {
   theme: "system",
 };
 
-const defaultGlobalSettings: GlobalSettings = {
+/**
+ * Built-in defaults applied when:
+ *  - the user has never opened the settings dialog (no `settings.yaml` on disk),
+ *  - the on-disk file is unreadable / unparseable,
+ *  - the user clicks Reset to defaults in the settings dialog.
+ *
+ * Mirrors the Rust `AppSettings::default()` shape so the round-trip is loss-free.
+ */
+export const defaultGlobalSettings: GlobalSettings = {
   appearance: defaultGlobalAppearanceSettings,
   terminal: defaultGlobalTerminalSettings,
 };
 
 /**
- * Resolved app-wide preferences. Stub: returns built-in defaults until persistence / UI exist.
+ * Synchronous fallback for code paths that cannot await the Rust load
+ * (currently unused in production — the live store is `useGlobalSettings()`).
+ * Kept exported so tests / future call sites can grab a known-good baseline.
  */
 export function getGlobalSettings(): GlobalSettings {
   return defaultGlobalSettings;

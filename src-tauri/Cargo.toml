@@ -1,6 +1,6 @@
 [package]
 name = "terminal-orchestrator"
-version = "0.8.2"
+version = "0.10.0"
 description = "Tagged PTY terminal orchestrator"
 authors = ["you"]
 edition = "2021"
