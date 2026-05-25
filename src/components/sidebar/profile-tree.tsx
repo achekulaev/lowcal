@@ -3,12 +3,7 @@ import type { Dispatch, ReactNode, SetStateAction } from "react";
 import type { ProfileDto } from "../../types/profile";
 import type { ResolvedTheme } from "../../settings/global-settings";
 import { tagPillStyle } from "../../utils/tag-pills";
-import {
-  FolderChevronIcon,
-  PlayTriangleIcon,
-  StopSquareIcon,
-  RestartLoopIcon,
-} from "../profile-icons";
+import { FolderChevronIcon, OverflowMenuIcon } from "../profile-icons";
 
 /**
  * Sentinel folder id for the "no tag" bucket. Real tags can be any user
@@ -79,9 +74,19 @@ export function ProfileTree(props: {
   expanded: Set<string>;
   setExpanded: Dispatch<SetStateAction<Set<string>>>;
   renderProfileRow: (p: ProfileDto, opts: { showTagPills: boolean }) => ReactNode;
-  onStartTag: (tag: string) => void;
-  onStopTag: (tag: string) => void;
-  onRestartTag: (tag: string) => void;
+  /**
+   * Anchors the bulk-actions popup for a tag-folder row. The actual menu
+   * (Start all / Stop all / Restart all) is rendered at the app root by
+   * `TagContextMenu` — the tree only knows how to open it. Untagged folders
+   * never call this (there's no `start_tag("")` equivalent backend command).
+   */
+  onOpenTagMenu: (tag: string, clientX: number, clientY: number) => void;
+  /**
+   * Which tag's menu is currently open, or `null`. Used so the matching
+   * overflow button can render `aria-expanded={true}`, matching the
+   * right-panel overflow button's behavior.
+   */
+  tagMenuOpenForTag: string | null;
 }) {
   const { profiles, allTags, selectedId, resolvedTheme, renderProfileRow, expanded, setExpanded } =
     props;
@@ -144,9 +149,12 @@ export function ProfileTree(props: {
           toggle={() => toggle(folder.id)}
           resolvedTheme={resolvedTheme}
           renderProfileRow={renderProfileRow}
-          onStartTag={folder.isUntagged ? null : () => props.onStartTag(folder.id)}
-          onStopTag={folder.isUntagged ? null : () => props.onStopTag(folder.id)}
-          onRestartTag={folder.isUntagged ? null : () => props.onRestartTag(folder.id)}
+          onOpenMenu={
+            folder.isUntagged
+              ? null
+              : (x, y) => props.onOpenTagMenu(folder.id, x, y)
+          }
+          menuOpen={!folder.isUntagged && props.tagMenuOpenForTag === folder.id}
         />
       ))}
     </div>
@@ -160,9 +168,14 @@ function TagFolderRow(props: {
   toggle: () => void;
   resolvedTheme: ResolvedTheme;
   renderProfileRow: (p: ProfileDto, opts: { showTagPills: boolean }) => ReactNode;
-  onStartTag: (() => void) | null;
-  onStopTag: (() => void) | null;
-  onRestartTag: (() => void) | null;
+  /**
+   * `null` for the Untagged folder (no bulk-action backend), otherwise opens
+   * the shared `TagContextMenu` at the click position. The actual three
+   * actions (Start all / Stop all / Restart all) live in the popup, replacing
+   * the previous three inline hover icons (see CHANGELOG entry / decisions).
+   */
+  onOpenMenu: ((clientX: number, clientY: number) => void) | null;
+  menuOpen: boolean;
 }) {
   const { folder, profiles, expanded, toggle, resolvedTheme, renderProfileRow } = props;
   const { running, total } = folderCounts(profiles, folder.member);
@@ -207,42 +220,26 @@ function TagFolderRow(props: {
             </span>
           )}
         </button>
-        {props.onStartTag || props.onStopTag || props.onRestartTag ? (
-          <div className="tag-folder-actions" role="group" aria-label={`Bulk actions for ${folder.label}`}>
-            {props.onStartTag ? (
-              <button
-                type="button"
-                className="tag-folder-action tag-folder-action--start"
-                onClick={props.onStartTag}
-                aria-label={`Start all in tag ${folder.label}`}
-                title={`Start all in ${folder.label}`}
-              >
-                <PlayTriangleIcon />
-              </button>
-            ) : null}
-            {props.onStopTag ? (
-              <button
-                type="button"
-                className="tag-folder-action tag-folder-action--stop"
-                onClick={props.onStopTag}
-                aria-label={`Stop all in tag ${folder.label}`}
-                title={`Stop all in ${folder.label}`}
-              >
-                <StopSquareIcon />
-              </button>
-            ) : null}
-            {props.onRestartTag ? (
-              <button
-                type="button"
-                className="tag-folder-action tag-folder-action--restart"
-                onClick={props.onRestartTag}
-                aria-label={`Restart all in tag ${folder.label}`}
-                title={`Restart all in ${folder.label}`}
-              >
-                <RestartLoopIcon />
-              </button>
-            ) : null}
-          </div>
+        {props.onOpenMenu ? (
+          <button
+            type="button"
+            className={`tag-folder-overflow-btn${props.menuOpen ? " tag-folder-overflow-btn--open" : ""}`}
+            aria-label={`Bulk actions for tag ${folder.label}`}
+            aria-haspopup="menu"
+            aria-expanded={props.menuOpen}
+            title={`Bulk actions for ${folder.label}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              const r = e.currentTarget.getBoundingClientRect();
+              // Anchor the popup just below the button's right edge, so the
+              // menu's top-right roughly tracks the button — the layout
+              // effect in `TagContextMenu` clamps it inside the viewport
+              // afterwards. Matches the right-panel overflow's positioning.
+              props.onOpenMenu!(r.left, r.bottom + 6);
+            }}
+          >
+            <OverflowMenuIcon />
+          </button>
         ) : null}
         <span
           className={`tag-folder-count-pill${running > 0 ? " tag-folder-count-pill--active" : ""}`}

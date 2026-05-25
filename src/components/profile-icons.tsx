@@ -172,6 +172,33 @@ export function SettingsGearIcon() {
   );
 }
 
+/** Pencil glyph — Edit action in the profile context menu (sidebar right-click
+ *  and right-panel overflow). Material-style 24×24 viewBox so it pairs cleanly
+ *  with the other menu glyphs at the shared 14×14 gutter size. */
+export function PencilEditIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden>
+      <path
+        fill="currentColor"
+        d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z"
+      />
+    </svg>
+  );
+}
+
+/** Trash-can glyph — Delete action in the profile context menu. Inherits
+ *  `currentColor`, so the `.danger` row colour automatically tints it red. */
+export function TrashDeleteIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden>
+      <path
+        fill="currentColor"
+        d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
+      />
+    </svg>
+  );
+}
+
 /** Two arrows on a circle — restart (blue accent in terminal header). */
 export function RestartLoopIcon() {
   return (

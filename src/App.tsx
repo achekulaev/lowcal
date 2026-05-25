@@ -13,6 +13,7 @@ import { ProfileContextMenu } from "./components/profile-context-menu";
 import { ProfileEditorModal } from "./components/profile-editor-modal";
 import { QuitConfirmModal } from "./components/quit-confirm-modal";
 import { ProfileSidebar } from "./components/sidebar/profile-sidebar";
+import { TagContextMenu } from "./components/tag-context-menu";
 import { TerminalStageHeader } from "./components/terminal/terminal-stage-header";
 import { TerminalWorkArea } from "./components/terminal/terminal-work-area";
 import {
@@ -28,7 +29,7 @@ import type { GlobalSettings } from "./settings/global-settings";
 import { useAppearance } from "./settings/use-appearance";
 import { useGlobalSettings } from "./settings/use-global-settings";
 import type { ProfileDto, ProfileFormState } from "./types/profile";
-import type { ModalMode, ProfileContextMenuState } from "./types/ui";
+import type { ModalMode, ProfileContextMenuState, TagContextMenuState } from "./types/ui";
 import { confirmDeleteProfile } from "./utils/delete-profile-dialog";
 import { formatUserFacingError, notifyUserError } from "./utils/errors";
 import {
@@ -82,6 +83,10 @@ export default function App() {
   const [modalError, setModalError] = useState<string | null>(null);
   const [profileMenu, setProfileMenu] = useState<ProfileContextMenuState | null>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
+  // Sidebar tag-folder bulk-actions popup. Same lifecycle as `profileMenu`:
+  // outside-click / Escape / modal-open all dismiss it (see effects below).
+  const [tagMenu, setTagMenu] = useState<TagContextMenuState | null>(null);
+  const tagMenuRef = useRef<HTMLDivElement>(null);
 
   const startSpinHoldRef = useRef<Set<string>>(new Set());
   const startSpinTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -121,7 +126,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (modalMode) setProfileMenu(null);
+    if (modalMode) {
+      setProfileMenu(null);
+      setTagMenu(null);
+    }
   }, [modalMode]);
 
   useEffect(() => {
@@ -148,11 +156,49 @@ export default function App() {
     };
   }, [profileMenu]);
 
+  // Mirror of the profileMenu outside-click / Escape lifecycle for the tag
+  // bulk-actions popup. Kept as a separate effect (not folded into one) so
+  // each menu's pointer listener attaches/detaches in lock-step with its own
+  // open/close state — a single combined effect would keep listeners attached
+  // even when only the other menu is open.
+  useEffect(() => {
+    if (!tagMenu) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setTagMenu(null);
+    };
+
+    const onPointerDown = (e: MouseEvent | TouchEvent) => {
+      const el = tagMenuRef.current;
+      const target = e.target;
+      if (!el || !(target instanceof Node) || el.contains(target)) return;
+      setTagMenu(null);
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+    };
+  }, [tagMenu]);
+
   useEffect(() => {
     if (profileMenu && !profiles.some((p) => p.id === profileMenu.profileId)) {
       setProfileMenu(null);
     }
   }, [profiles, profileMenu]);
+
+  // If the tag the menu targets no longer exists on any profile (last
+  // profile carrying it was deleted / retagged in another window), close
+  // the popup so a stale action can't fire against an empty group.
+  useEffect(() => {
+    if (!tagMenu) return;
+    const stillExists = profiles.some((p) => p.tags.includes(tagMenu.tag));
+    if (!stillExists) setTagMenu(null);
+  }, [profiles, tagMenu]);
 
   const allTags = useMemo(() => {
     const s = new Set<string>();
@@ -899,9 +945,15 @@ export default function App() {
           resolvedTheme={resolvedTheme}
           onStopAll={stopAllFromSidebar}
           onOpenSettings={() => setSettingsModalOpen(true)}
-          onStartTag={startTagFromSidebar}
-          onStopTag={stopTagFromSidebar}
-          onRestartTag={restartTagFromSidebar}
+          onOpenTagMenu={(tag, clientX, clientY) => {
+            // Toggle: re-clicking the same row's overflow closes the popup.
+            if (tagMenu && tagMenu.tag === tag) {
+              setTagMenu(null);
+              return;
+            }
+            setTagMenu({ clientX, clientY, tag });
+          }}
+          tagMenuOpenForTag={tagMenu?.tag ?? null}
         />
 
         <section className="terminal-stage" aria-label="Active terminal session">
@@ -939,6 +991,28 @@ export default function App() {
           anchorRef={profileMenuRef}
           onEdit={() => profileMenuEdit(menuTargetProfile)}
           onDelete={() => profileMenuDelete(menuTargetProfile)}
+        />
+      ) : null}
+
+      {tagMenu ? (
+        <TagContextMenu
+          state={tagMenu}
+          anchorRef={tagMenuRef}
+          onStart={() => {
+            const tag = tagMenu.tag;
+            setTagMenu(null);
+            startTagFromSidebar(tag);
+          }}
+          onStop={() => {
+            const tag = tagMenu.tag;
+            setTagMenu(null);
+            stopTagFromSidebar(tag);
+          }}
+          onRestart={() => {
+            const tag = tagMenu.tag;
+            setTagMenu(null);
+            restartTagFromSidebar(tag);
+          }}
         />
       ) : null}
 

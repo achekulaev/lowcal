@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { FormFieldHint } from "./form-field-hint";
+import { TrashDeleteIcon } from "./profile-icons";
 import { TagsField } from "./tags-field";
 import type { ProfileDto, ProfileFormState } from "../types/profile";
 import type { ModalMode } from "../types/ui";
@@ -158,7 +159,15 @@ export function ProfileEditorModal(props: {
         )}
         <footer className="modal-footer">
           {modalMode === "edit" && (
-            <button type="button" className="danger" disabled={saving} onClick={() => void deleteProfile()}>
+            <button
+              type="button"
+              className="danger profile-editor-delete-btn"
+              disabled={saving}
+              onClick={() => void deleteProfile()}
+            >
+              <span className="profile-editor-delete-btn__icon" aria-hidden>
+                <TrashDeleteIcon />
+              </span>
               Delete profile
             </button>
           )}

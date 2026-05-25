@@ -1,5 +1,6 @@
 import { useLayoutEffect, type LegacyRef, type RefObject } from "react";
 import type { ProfileContextMenuState } from "../types/ui";
+import { PencilEditIcon, TrashDeleteIcon } from "./profile-icons";
 
 export function ProfileContextMenu(props: {
   state: ProfileContextMenuState | null;
@@ -42,10 +43,26 @@ export function ProfileContextMenu(props: {
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <button type="button" role="menuitem" className="profile-context-menu-item" onClick={onEdit}>
+      <button
+        type="button"
+        role="menuitem"
+        className="profile-context-menu-item profile-context-menu-item--with-icon"
+        onClick={onEdit}
+      >
+        <span className="profile-context-menu-item__icon profile-context-menu-item__icon--edit" aria-hidden>
+          <PencilEditIcon />
+        </span>
         Edit
       </button>
-      <button type="button" role="menuitem" className="profile-context-menu-item danger" onClick={onDelete}>
+      <button
+        type="button"
+        role="menuitem"
+        className="profile-context-menu-item profile-context-menu-item--with-icon danger"
+        onClick={onDelete}
+      >
+        <span className="profile-context-menu-item__icon" aria-hidden>
+          <TrashDeleteIcon />
+        </span>
         Delete
       </button>
     </div>

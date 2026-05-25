@@ -196,9 +196,15 @@ export function ProfileSidebar(props: {
   resolvedTheme: ResolvedTheme;
   onStopAll: () => void;
   onOpenSettings: () => void;
-  onStartTag: (tag: string) => void;
-  onStopTag: (tag: string) => void;
-  onRestartTag: (tag: string) => void;
+  /**
+   * Opens the shared `TagContextMenu` from a tag-folder row's overflow
+   * button. The menu surface and its actions (Start all / Stop all / Restart
+   * all) live at the app root — sidebar only knows the click coordinates and
+   * the target tag.
+   */
+  onOpenTagMenu: (tag: string, clientX: number, clientY: number) => void;
+  /** Which tag's menu is currently open (for `aria-expanded` on the row). */
+  tagMenuOpenForTag: string | null;
 }) {
   const {
     query,
@@ -222,9 +228,8 @@ export function ProfileSidebar(props: {
     resolvedTheme,
     onStopAll,
     onOpenSettings,
-    onStartTag,
-    onStopTag,
-    onRestartTag,
+    onOpenTagMenu,
+    tagMenuOpenForTag,
   } = props;
 
   // Owned by the sidebar (not the tree) so collapse state survives the
@@ -399,9 +404,8 @@ export function ProfileSidebar(props: {
             expanded={expandedTagFolders}
             setExpanded={setExpandedTagFolders}
             renderProfileRow={renderProfileRow}
-            onStartTag={onStartTag}
-            onStopTag={onStopTag}
-            onRestartTag={onRestartTag}
+            onOpenTagMenu={onOpenTagMenu}
+            tagMenuOpenForTag={tagMenuOpenForTag}
           />
         )}
         {(searchActive ? searchResults : profiles).length === 0 ? (
