@@ -29,7 +29,7 @@ export interface ProfileFormState {
   displayName: string;
   command: string;
   cwd: string;
-  tagsStr: string;
+  tags: string[];
   envStr: string;
   startCommandOnAppOpen: boolean;
 }

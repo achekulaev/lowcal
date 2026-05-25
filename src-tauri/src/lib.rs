@@ -2299,8 +2299,31 @@ fn init_stdio_tracing() {
     }
 }
 
-/// macOS-only: install **File → New Terminal** (Cmd+T), a Preferences… entry
-/// (Cmd+,), and a **custom** Quit entry (Cmd+Q) into the default Tauri menu.
+/// Holds native menu item handles the frontend toggles at runtime.
+#[cfg(target_os = "macos")]
+struct MacOSAppMenu {
+    edit_terminal: tauri::menu::MenuItem<tauri::Wry>,
+}
+
+/// Sync **File → Edit Terminal** enabled state from the frontend (`selectedId`
+/// present in the sidebar). No-op on non-macOS builds where the item is absent.
+#[tauri::command]
+fn set_edit_terminal_menu_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(menu) = app.try_state::<MacOSAppMenu>() {
+            menu.edit_terminal
+                .set_enabled(enabled)
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    let _ = enabled;
+    Ok(())
+}
+
+/// macOS-only: install **File → New Terminal** (Cmd+T), **Edit Terminal**
+/// (Cmd+E), a Preferences… entry (Cmd+,), and a **custom** Quit entry (Cmd+Q)
+/// into the default Tauri menu.
 /// Mutates `Menu::default(...)` in place rather than rebuilding the whole bar
 /// so we don't have to maintain Edit / View / Window / Help submenus by hand.
 ///
@@ -2322,6 +2345,10 @@ fn init_stdio_tracing() {
 /// keydown handler in `App.tsx` is the cross-platform fallback (and still
 /// handles the secondary Cmd+= shortcut).
 ///
+/// **File → Edit Terminal** (Cmd+E) emits `open-edit-terminal`; the item
+/// starts disabled and the frontend enables it when a sidebar profile is
+/// selected (`set_edit_terminal_menu_enabled`).
+///
 /// The Preferences click — and the system-routed Cmd+, accelerator — emit an
 /// `open-settings` event the frontend already listens for; the in-WebView
 /// keydown handler in `App.tsx` is the cross-platform fallback.
@@ -2336,6 +2363,10 @@ fn install_macos_app_menu(app: &tauri::App) -> tauri::Result<()> {
 
     let new_terminal = MenuItemBuilder::with_id("new-terminal", "New Terminal")
         .accelerator("CmdOrCtrl+T")
+        .build(handle)?;
+    let edit_terminal = MenuItemBuilder::with_id("edit-terminal", "Edit Terminal")
+        .accelerator("CmdOrCtrl+E")
+        .enabled(false)
         .build(handle)?;
     let file_sep = PredefinedMenuItem::separator(handle)?;
 
@@ -2354,7 +2385,9 @@ fn install_macos_app_menu(app: &tauri::App) -> tauri::Result<()> {
         }
     }) {
         file_submenu.insert(&new_terminal, 0)?;
-        file_submenu.insert(&file_sep, 1)?;
+        file_submenu.insert(&edit_terminal, 1)?;
+        file_submenu.insert(&file_sep, 2)?;
+        app.manage(MacOSAppMenu { edit_terminal });
     }
 
     let prefs = MenuItemBuilder::with_id("preferences", "Preferences…")
@@ -2435,6 +2468,13 @@ pub fn run() {
                     // opens the create-profile modal — same code path as the
                     // sidebar + button and the in-WebView Cmd+T / Cmd+= fallback.
                     let _ = app.emit("open-new-terminal", ());
+                }
+                "edit-terminal" => {
+                    // Frontend (App.tsx) listens for `open-edit-terminal` and
+                    // opens the edit-profile modal for the selected sidebar row
+                    // — same code path as the in-WebView Cmd+E fallback. The
+                    // menu item stays disabled when nothing is selected.
+                    let _ = app.emit("open-edit-terminal", ());
                 }
                 "preferences" => {
                     // Frontend (App.tsx) listens for `open-settings` and toggles
@@ -2548,6 +2588,7 @@ pub fn run() {
             resolve_working_directory,
             user_home_directory,
             confirm_quit_proceed,
+            set_edit_terminal_menu_enabled,
             app_settings::get_app_settings,
             app_settings::set_app_settings,
         ])

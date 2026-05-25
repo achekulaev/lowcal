@@ -1613,6 +1613,114 @@ body {
   color: var(--accent);
 }
 
+/*
+ * Chip-based tag editor (see `src/components/tags-field.tsx`). The typing
+ * input sits on top (styled like the other modal text inputs via the
+ * `.modal-field input[type="text"]` rule), with selected-tag chips listed
+ * underneath as standalone pills — no enclosing bordered container.
+ */
+.tags-field-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.tags-field-input-row {
+  position: relative;
+}
+
+.tags-field__input {
+  width: 100%;
+}
+
+.tags-field__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.tags-field__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  user-select: none;
+}
+
+.tags-field__chip-label {
+  white-space: nowrap;
+}
+
+.tags-field__chip-remove {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  width: 0.95rem;
+  height: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  border-radius: 999px;
+}
+
+.tags-field__chip-remove:hover {
+  opacity: 1;
+  color: var(--stopped);
+}
+
+.tags-field__chip-remove:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  opacity: 1;
+}
+
+.tags-field__suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 4px 0 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-soft);
+  z-index: 5;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.tags-field__suggestion {
+  display: flex;
+  align-items: center;
+  padding: 0.3rem 0.4rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.tags-field__suggestion--active,
+.tags-field__suggestion:hover {
+  background: var(--row-hover);
+}
+
+.tags-field__suggestion .tag-pill {
+  font-size: 0.72rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+}
+
 .modal-hint {
   font-size: 0.72rem;
   color: var(--muted);

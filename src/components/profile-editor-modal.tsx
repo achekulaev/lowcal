@@ -1,7 +1,9 @@
 import { useLayoutEffect, useRef } from "react";
 import { FormFieldHint } from "./form-field-hint";
+import { TagsField } from "./tags-field";
 import type { ProfileDto, ProfileFormState } from "../types/profile";
 import type { ModalMode } from "../types/ui";
+import type { ResolvedTheme } from "../settings/global-settings";
 export function ProfileEditorModal(props: {
   modalMode: ModalMode;
   editId: string | null;
@@ -14,6 +16,8 @@ export function ProfileEditorModal(props: {
   deleteProfile: () => Promise<void>;
   pickWorkingDirectory: () => Promise<void>;
   selectedForHint: ProfileDto | null;
+  allTags: string[];
+  resolvedTheme: ResolvedTheme;
 }) {
   const {
     modalMode,
@@ -27,6 +31,8 @@ export function ProfileEditorModal(props: {
     deleteProfile,
     pickWorkingDirectory,
     selectedForHint,
+    allTags,
+    resolvedTheme,
   } = props;
 
   const nameFieldRef = useRef<HTMLInputElement>(null);
@@ -110,14 +116,13 @@ export function ProfileEditorModal(props: {
             </div>
           </div>
           <div className="modal-field">
-            <label htmlFor="pf-tags">Tags (comma-separated)</label>
-            <input
+            <label htmlFor="pf-tags">Tags</label>
+            <TagsField
               id="pf-tags"
-              type="text"
-              value={form.tagsStr}
-              onChange={(e) => setForm((f) => ({ ...f, tagsStr: e.target.value }))}
-              placeholder="frontend, dev"
-              autoComplete="off"
+              value={form.tags}
+              onChange={(tags) => setForm((f) => ({ ...f, tags }))}
+              allTags={allTags}
+              theme={resolvedTheme}
             />
           </div>
           <div className="modal-field modal-field-checkbox">

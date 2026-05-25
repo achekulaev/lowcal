@@ -6,7 +6,7 @@ export function emptyForm(): ProfileFormState {
     displayName: "",
     command: "",
     cwd: "",
-    tagsStr: "",
+    tags: [],
     envStr: "",
     startCommandOnAppOpen: false,
   };
@@ -38,7 +38,7 @@ export function formFromProfile(p: ProfileDto): ProfileFormState {
     displayName: p.displayName,
     command: p.command,
     cwd: p.cwd ?? "",
-    tagsStr: p.tags.join(", "),
+    tags: [...p.tags],
     envStr: envLinesFromRecord(p.env),
     startCommandOnAppOpen: p.startCommandOnAppOpen ?? false,
   };

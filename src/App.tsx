@@ -4,7 +4,6 @@ import { open } from "@tauri-apps/plugin-dialog";
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -37,7 +36,6 @@ import {
   envRecordFromLines,
   formFromProfile,
   nextSelectedIdAfterDelete,
-  tagsFromCommaString,
 } from "./utils/profile-form";
 
 /** When no tab is selected; matches startup title in `tauri.conf.json`. */
@@ -466,12 +464,19 @@ export default function App() {
     setModalMode("create");
   }, []);
 
-  const openEditModal = (p: ProfileDto) => {
+  const openEditModal = useCallback((p: ProfileDto) => {
     setEditId(p.id);
     setForm(formFromProfile(p));
     setModalError(null);
     setModalMode("edit");
-  };
+  }, []);
+
+  const openEditModalForSelected = useCallback(() => {
+    if (!selectedId) return;
+    const p = profiles.find((prof) => prof.id === selectedId);
+    if (!p) return;
+    openEditModal(p);
+  }, [selectedId, profiles, openEditModal]);
 
   const closeModal = useCallback(() => {
     setModalMode(null);
@@ -488,7 +493,7 @@ export default function App() {
       setModalError("Display name and command are required.");
       return;
     }
-    const tags = tagsFromCommaString(form.tagsStr);
+    const tags = form.tags;
     const env = envRecordFromLines(form.envStr);
     const cwdTrim = form.cwd.trim();
     setSaving(true);
@@ -593,6 +598,40 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [modalMode, settingsModalOpen, quitConfirmRunning, openCreateModal]);
 
+  // Cmd+E (macOS) / Ctrl+E — open the edit-profile modal for the selected
+  // sidebar row. Capture phase so it fires even when the xterm canvas has
+  // focus. Suppressed while any modal is open or nothing is selected.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key !== "e" && e.key !== "E") return;
+      if (modalMode || settingsModalOpen || quitConfirmRunning !== null) return;
+      if (!selectedId) return;
+      const p = profiles.find((prof) => prof.id === selectedId);
+      if (!p) return;
+
+      e.preventDefault();
+      openEditModal(p);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [
+    modalMode,
+    settingsModalOpen,
+    quitConfirmRunning,
+    selectedId,
+    profiles,
+    openEditModal,
+  ]);
+
+  // macOS menu — keep File → Edit Terminal disabled until a sidebar profile
+  // is selected (and re-disable if the selected id disappears).
+  useEffect(() => {
+    const enabled =
+      selectedId != null && profiles.some((p) => p.id === selectedId);
+    void invoke("set_edit_terminal_menu_enabled", { enabled }).catch(() => {});
+  }, [selectedId, profiles]);
+
   // Cmd+, (macOS) / Ctrl+, (other) — global toggle. Suppressed while the
   // profile editor modal is open so we don't pile a second dialog on top.
   // On macOS the native menu accelerator wins (the keystroke never reaches
@@ -634,6 +673,31 @@ export default function App() {
     settingsModalOpen,
     quitConfirmRunning,
     openCreateModal,
+  ]);
+
+  // Tauri menu — `File → Edit Terminal` (or its Cmd+E accelerator) emits
+  // `open-edit-terminal` from the Rust side. Same semantics as the in-WebView
+  // Cmd+E fallback; suppressed while any modal is open or nothing is selected.
+  useEffect(() => {
+    let alive = true;
+    let unlisten: (() => void) | undefined;
+    listen("open-edit-terminal", () => {
+      if (!alive) return;
+      if (modalMode || settingsModalOpen || quitConfirmRunning !== null) return;
+      openEditModalForSelected();
+    }).then((u) => {
+      if (alive) unlisten = u;
+      else u();
+    });
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, [
+    modalMode,
+    settingsModalOpen,
+    quitConfirmRunning,
+    openEditModalForSelected,
   ]);
 
   // Tauri menu — `LowCal → Preferences…` (or its accelerator) emits
@@ -890,6 +954,8 @@ export default function App() {
         deleteProfile={deleteProfile}
         pickWorkingDirectory={pickWorkingDirectory}
         selectedForHint={selectedForModalHint}
+        allTags={allTags}
+        resolvedTheme={resolvedTheme}
       />
 
       <AppSettingsModal
