@@ -222,7 +222,6 @@ export function ProfileSidebar(props: {
         onSelect={() => setSelectedId(p.id)}
         onOpenContextMenu={(e) => {
           e.preventDefault();
-          setSelectedId(p.id);
           setProfileMenu({
             clientX: e.clientX,
             clientY: e.clientY,
@@ -246,7 +245,7 @@ export function ProfileSidebar(props: {
           <div className="sidebar-head-actions">
             <button
               type="button"
-              className="sidebar-add-icon-btn sidebar-add-icon-btn-sm"
+              className="sidebar-add-icon-btn sidebar-add-icon-btn-sm sidebar-search-btn"
               onClick={() => {
                 if (sidebarFilterOpen) {
                   setQuery("");
@@ -274,7 +273,7 @@ export function ProfileSidebar(props: {
             </button>
             <button
               type="button"
-              className="sidebar-add-icon-btn sidebar-add-icon-btn-sm"
+              className="sidebar-add-icon-btn sidebar-add-icon-btn-sm sidebar-new-terminal-btn"
               onClick={openCreateModal}
               aria-label="New terminal"
               title="New terminal (⌘T, ⌘=)"

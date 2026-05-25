@@ -42,8 +42,6 @@ pub struct ProfileDto {
     pub env: HashMap<String, String>,
     pub tags: Vec<String>,
     #[serde(default)]
-    pub warm_on_start: bool,
-    #[serde(default)]
     pub start_command_on_app_open: bool,
     pub status: SessionStatus,
     /// `true` while the most recent backend-initiated **Start** (sidebar / stage header /
@@ -88,9 +86,7 @@ pub struct Profile {
     pub env: HashMap<String, String>,
     #[serde(default)]
     pub tags: Vec<String>,
-    #[serde(default, alias = "warmOnStart", skip_serializing_if = "serde_skip_bool_false")]
-    pub warm_on_start: bool,
-    /// When true, injects `command` at app launch (same as **Start**). Implies a shell; `warm_on_start` is optional.
+    /// When true, injects `command` at app launch (same as **Start**).
     #[serde(default, alias = "startCommandOnAppOpen", skip_serializing_if = "serde_skip_bool_false")]
     pub start_command_on_app_open: bool,
 }
@@ -106,8 +102,6 @@ pub struct ProfileSaveInput {
     pub tags: Vec<String>,
     #[serde(default)]
     pub env: HashMap<String, String>,
-    #[serde(default)]
-    pub warm_on_start: bool,
     #[serde(default)]
     pub start_command_on_app_open: bool,
 }
@@ -332,7 +326,6 @@ impl AppStateInner {
                     cwd: p.cwd.clone(),
                     env: p.env.clone(),
                     tags: p.tags.clone(),
-                    warm_on_start: p.warm_on_start,
                     start_command_on_app_open: p.start_command_on_app_open,
                     status,
                     started_via_ui,
@@ -444,7 +437,7 @@ fn unique_profile_id(base: &str, existing: &HashSet<String>) -> String {
 
 fn normalized_profile_body(
     input: ProfileSaveInput,
-) -> Result<(String, String, Option<String>, Vec<String>, HashMap<String, String>, bool, bool), String> {
+) -> Result<(String, String, Option<String>, Vec<String>, HashMap<String, String>, bool), String> {
     let display_name = input.display_name.trim().to_string();
     let command = input.command.trim().to_string();
     if display_name.is_empty() {
@@ -467,14 +460,12 @@ fn normalized_profile_body(
     let tags = normalize_tags(input.tags);
     let env = normalize_env(input.env);
     let start_command_on_app_open = input.start_command_on_app_open;
-    let warm_on_start = input.warm_on_start && !start_command_on_app_open;
     Ok((
         display_name,
         command,
         cwd,
         tags,
         env,
-        warm_on_start,
         start_command_on_app_open,
     ))
 }
@@ -1206,12 +1197,14 @@ impl InjectedEchoScrubber {
 
     /// Length of the in-progress prefix the scrubber is currently holding back (for
     /// `LOWCAL_DEBUG_BYTES` diagnostics — never used for control flow).
+    #[allow(dead_code)]
     fn pending_len(&self) -> usize {
         self.pending.len()
     }
 
     /// Borrow the in-progress prefix bytes (for `LOWCAL_DEBUG_BYTES` diagnostics — never
     /// used for control flow). Returned slice is valid until the next `feed`/`flush` call.
+    #[allow(dead_code)]
     fn pending_snapshot(&self) -> &[u8] {
         &self.pending
     }
@@ -1603,20 +1596,14 @@ impl<'a> Drop for StartupPendingGuard<'a> {
 /// Warm idle shells and/or run saved commands for profiles configured for app launch (desktop).
 #[cfg(not(mobile))]
 fn apply_startup_profile_actions(app: &AppHandle, state: &SharedState) {
-    let plan: Vec<(String, bool, bool)> = {
+    let plan: Vec<(String, bool)> = {
         let cfg = state.config.read();
         cfg.profiles
             .iter()
-            .map(|p| {
-                (
-                    p.id.clone(),
-                    p.warm_on_start,
-                    p.start_command_on_app_open,
-                )
-            })
+            .map(|p| (p.id.clone(), p.start_command_on_app_open))
             .collect()
     };
-    for (id, warm, run_command) in plan {
+    for (id, run_command) in plan {
         if run_command {
             // Hold a startup-pending entry for the entirety of `start_profile_inner`
             // (which runs the shell-ready + broadcast-idle waits before flipping
@@ -1629,12 +1616,12 @@ fn apply_startup_profile_actions(app: &AppHandle, state: &SharedState) {
                     "start-command-on-app-open: failed"
                 );
             }
-        } else if warm {
+        } else {
             if let Err(e) = ensure_shell_session_impl(app, state, &id) {
                 tracing::warn!(
                     error = %e,
                     profile_id = %id,
-                    "warm-on-start: failed to spawn shell session"
+                    "startup-warm: failed to spawn shell session"
                 );
             }
         }
@@ -2068,7 +2055,7 @@ fn create_profile(
     app: AppHandle,
     input: ProfileSaveInput,
 ) -> Result<ProfileDto, String> {
-    let (display_name, command, cwd, tags, env, warm_on_start, start_command_on_app_open) =
+    let (display_name, command, cwd, tags, env, start_command_on_app_open) =
         normalized_profile_body(input)?;
 
     let new_id = {
@@ -2085,7 +2072,6 @@ fn create_profile(
         cwd,
         env,
         tags,
-        warm_on_start,
         start_command_on_app_open,
     };
 
@@ -2102,14 +2088,6 @@ fn create_profile(
                     error = %e,
                     profile_id = %new_id,
                     "start-command-on-app-open: failed after create"
-                );
-            }
-        } else if warm_on_start {
-            if let Err(e) = ensure_shell_session_impl(&app, &state, &new_id) {
-                tracing::warn!(
-                    error = %e,
-                    profile_id = %new_id,
-                    "warm-on-start: failed to spawn shell after create"
                 );
             }
         }
@@ -2131,7 +2109,7 @@ fn update_profile(
     payload: UpdateProfilePayload,
 ) -> Result<(), String> {
     let id = payload.id;
-    let (display_name, command, cwd, tags, env, warm_on_start, start_command_on_app_open) =
+    let (display_name, command, cwd, tags, env, start_command_on_app_open) =
         normalized_profile_body(payload.body)?;
 
     state.write_cfg(|cfg| {
@@ -2145,7 +2123,6 @@ fn update_profile(
         p.cwd = cwd;
         p.tags = tags;
         p.env = env;
-        p.warm_on_start = warm_on_start;
         p.start_command_on_app_open = start_command_on_app_open;
         Ok(())
     })?;
@@ -2158,14 +2135,6 @@ fn update_profile(
                     error = %e,
                     profile_id = %id,
                     "start-command-on-app-open: failed after update"
-                );
-            }
-        } else if warm_on_start {
-            if let Err(e) = ensure_shell_session_impl(&app, &state, &id) {
-                tracing::warn!(
-                    error = %e,
-                    profile_id = %id,
-                    "warm-on-start: failed to spawn shell after update"
                 );
             }
         }
@@ -2330,10 +2299,10 @@ fn init_stdio_tracing() {
     }
 }
 
-/// macOS-only: install a Preferences… entry (Cmd+,) and a **custom** Quit
-/// entry (Cmd+Q) into the App submenu of the default Tauri menu. Mutates
-/// `Menu::default(...)` in place rather than rebuilding the whole bar so we
-/// don't have to maintain Edit / View / Window / Help submenus by hand.
+/// macOS-only: install **File → New Terminal** (Cmd+T), a Preferences… entry
+/// (Cmd+,), and a **custom** Quit entry (Cmd+Q) into the default Tauri menu.
+/// Mutates `Menu::default(...)` in place rather than rebuilding the whole bar
+/// so we don't have to maintain Edit / View / Window / Help submenus by hand.
 ///
 /// **Why a custom Quit?** The default `PredefinedMenuItem::quit(...)` is wired
 /// to NSApp's `terminate:` selector. `terminate:` calls
@@ -2348,6 +2317,11 @@ fn init_stdio_tracing() {
 /// run the same close-confirm logic and only call `app.exit(0)` when the
 /// user has confirmed.
 ///
+/// The File → New Terminal click — and the system-routed Cmd+T accelerator —
+/// emit an `open-new-terminal` event the frontend listens for; the in-WebView
+/// keydown handler in `App.tsx` is the cross-platform fallback (and still
+/// handles the secondary Cmd+= shortcut).
+///
 /// The Preferences click — and the system-routed Cmd+, accelerator — emit an
 /// `open-settings` event the frontend already listens for; the in-WebView
 /// keydown handler in `App.tsx` is the cross-platform fallback.
@@ -2359,6 +2333,29 @@ fn install_macos_app_menu(app: &tauri::App) -> tauri::Result<()> {
 
     let handle = app.handle();
     let menu = Menu::default(handle)?;
+
+    let new_terminal = MenuItemBuilder::with_id("new-terminal", "New Terminal")
+        .accelerator("CmdOrCtrl+T")
+        .build(handle)?;
+    let file_sep = PredefinedMenuItem::separator(handle)?;
+
+    if let Some(file_submenu) = menu.items()?.into_iter().find_map(|kind| {
+        match kind {
+            MenuItemKind::Submenu(sub)
+                if sub
+                    .text()
+                    .ok()
+                    .map(|t| t == "File")
+                    .unwrap_or(false) =>
+            {
+                Some(sub)
+            }
+            _ => None,
+        }
+    }) {
+        file_submenu.insert(&new_terminal, 0)?;
+        file_submenu.insert(&file_sep, 1)?;
+    }
 
     let prefs = MenuItemBuilder::with_id("preferences", "Preferences…")
         .accelerator("CmdOrCtrl+,")
@@ -2433,6 +2430,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .on_menu_event(|app, event| {
             match event.id().as_ref() {
+                "new-terminal" => {
+                    // Frontend (App.tsx) listens for `open-new-terminal` and
+                    // opens the create-profile modal — same code path as the
+                    // sidebar + button and the in-WebView Cmd+T / Cmd+= fallback.
+                    let _ = app.emit("open-new-terminal", ());
+                }
                 "preferences" => {
                     // Frontend (App.tsx) listens for `open-settings` and toggles
                     // the settings modal — same code path as the gear button and

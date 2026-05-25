@@ -501,7 +501,6 @@ export default function App() {
             cwd: cwdTrim || null,
             tags,
             env,
-            warmOnStart: form.warmOnStart,
             startCommandOnAppOpen: form.startCommandOnAppOpen,
           },
         });
@@ -516,7 +515,6 @@ export default function App() {
             cwd: cwdTrim || null,
             tags,
             env,
-            warmOnStart: form.warmOnStart,
             startCommandOnAppOpen: form.startCommandOnAppOpen,
           },
         });
@@ -533,13 +531,6 @@ export default function App() {
 
   const saveModalRef = useRef(saveModal);
   saveModalRef.current = saveModal;
-
-  const profileModalFirstFieldRef = useRef<HTMLInputElement>(null);
-
-  useLayoutEffect(() => {
-    if (!modalMode) return;
-    profileModalFirstFieldRef.current?.focus();
-  }, [modalMode]);
 
   useEffect(() => {
     if (!modalMode) return;
@@ -619,6 +610,31 @@ export default function App() {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [modalMode]);
+
+  // Tauri menu — `File → New Terminal` (or its Cmd+T accelerator) emits
+  // `open-new-terminal` from the Rust side. Same semantics as the sidebar +
+  // button and the keydown fallback above; suppressed while any modal is open.
+  useEffect(() => {
+    let alive = true;
+    let unlisten: (() => void) | undefined;
+    listen("open-new-terminal", () => {
+      if (!alive) return;
+      if (modalMode || settingsModalOpen || quitConfirmRunning !== null) return;
+      openCreateModal();
+    }).then((u) => {
+      if (alive) unlisten = u;
+      else u();
+    });
+    return () => {
+      alive = false;
+      unlisten?.();
+    };
+  }, [
+    modalMode,
+    settingsModalOpen,
+    quitConfirmRunning,
+    openCreateModal,
+  ]);
 
   // Tauri menu — `LowCal → Preferences…` (or its accelerator) emits
   // `open-settings` from the Rust side. Same toggle semantics as the gear
@@ -873,7 +889,6 @@ export default function App() {
         saveModal={saveModal}
         deleteProfile={deleteProfile}
         pickWorkingDirectory={pickWorkingDirectory}
-        profileModalFirstFieldRef={profileModalFirstFieldRef}
         selectedForHint={selectedForModalHint}
       />
 

@@ -8,7 +8,6 @@ export function emptyForm(): ProfileFormState {
     cwd: "",
     tagsStr: "",
     envStr: "",
-    warmOnStart: false,
     startCommandOnAppOpen: false,
   };
 }
@@ -35,15 +34,13 @@ export function envRecordFromLines(text: string): Record<string, string> {
 }
 
 export function formFromProfile(p: ProfileDto): ProfileFormState {
-  const autoStart = p.startCommandOnAppOpen ?? false;
   return {
     displayName: p.displayName,
     command: p.command,
     cwd: p.cwd ?? "",
     tagsStr: p.tags.join(", "),
     envStr: envLinesFromRecord(p.env),
-    warmOnStart: autoStart ? false : (p.warmOnStart ?? false),
-    startCommandOnAppOpen: autoStart,
+    startCommandOnAppOpen: p.startCommandOnAppOpen ?? false,
   };
 }
 

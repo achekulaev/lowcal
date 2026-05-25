@@ -7,7 +7,6 @@ export interface ProfileDto {
   cwd?: string;
   env?: Record<string, string>;
   tags: string[];
-  warmOnStart?: boolean;
   startCommandOnAppOpen?: boolean;
   status: SessionStatus;
   /**
@@ -32,6 +31,5 @@ export interface ProfileFormState {
   cwd: string;
   tagsStr: string;
   envStr: string;
-  warmOnStart: boolean;
   startCommandOnAppOpen: boolean;
 }

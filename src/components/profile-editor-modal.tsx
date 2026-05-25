@@ -1,4 +1,4 @@
-import type { LegacyRef, RefObject } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { FormFieldHint } from "./form-field-hint";
 import type { ProfileDto, ProfileFormState } from "../types/profile";
 import type { ModalMode } from "../types/ui";
@@ -13,7 +13,6 @@ export function ProfileEditorModal(props: {
   saveModal: () => Promise<void>;
   deleteProfile: () => Promise<void>;
   pickWorkingDirectory: () => Promise<void>;
-  profileModalFirstFieldRef: RefObject<HTMLInputElement | null>;
   selectedForHint: ProfileDto | null;
 }) {
   const {
@@ -27,9 +26,19 @@ export function ProfileEditorModal(props: {
     saveModal,
     deleteProfile,
     pickWorkingDirectory,
-    profileModalFirstFieldRef,
     selectedForHint,
   } = props;
+
+  const nameFieldRef = useRef<HTMLInputElement>(null);
+  const commandFieldRef = useRef<HTMLTextAreaElement>(null);
+
+  useLayoutEffect(() => {
+    if (modalMode === "create") {
+      nameFieldRef.current?.focus();
+    } else if (modalMode === "edit") {
+      commandFieldRef.current?.focus();
+    }
+  }, [modalMode]);
 
   if (!modalMode) return null;
 
@@ -65,7 +74,7 @@ export function ProfileEditorModal(props: {
           <div className="modal-field">
             <label htmlFor="pf-name">Display name</label>
             <input
-              ref={profileModalFirstFieldRef as LegacyRef<HTMLInputElement>}
+              ref={nameFieldRef}
               id="pf-name"
               type="text"
               value={form.displayName}
@@ -76,6 +85,7 @@ export function ProfileEditorModal(props: {
           <div className="modal-field">
             <label htmlFor="pf-cmd">Command (runs when you press Start)</label>
             <textarea
+              ref={commandFieldRef}
               id="pf-cmd"
               value={form.command}
               onChange={(e) => setForm((f) => ({ ...f, command: e.target.value }))}
@@ -84,7 +94,7 @@ export function ProfileEditorModal(props: {
             />
           </div>
           <div className="modal-field">
-            <label htmlFor="pf-cwd">Working directory (optional)</label>
+            <label htmlFor="pf-cwd">Working directory</label>
             <div className="modal-field-cwd-row">
               <input
                 id="pf-cwd"
@@ -116,41 +126,12 @@ export function ProfileEditorModal(props: {
                 id="pf-autostart"
                 type="checkbox"
                 checked={form.startCommandOnAppOpen}
-                onChange={(e) => {
-                  const on = e.target.checked;
-                  setForm((f) => ({
-                    ...f,
-                    startCommandOnAppOpen: on,
-                    warmOnStart: on ? false : f.warmOnStart,
-                  }));
-                }}
+                onChange={(e) => setForm((f) => ({ ...f, startCommandOnAppOpen: e.target.checked }))}
               />
               <label htmlFor="pf-autostart" className="modal-checkbox-label">
-                Run saved command when the app opens
+                Run at the application startup
               </label>
               <FormFieldHint text="Same as pressing Start — the saved command runs as soon as the app opens." />
-            </div>
-          </div>
-          <div
-            className={`modal-field modal-field-checkbox${form.startCommandOnAppOpen ? " modal-field-checkbox--disabled" : ""}`}
-            title={
-              form.startCommandOnAppOpen
-                ? "Included automatically when the saved command runs at open."
-                : undefined
-            }
-          >
-            <div className="modal-checkbox-row">
-              <input
-                id="pf-warm"
-                type="checkbox"
-                disabled={form.startCommandOnAppOpen}
-                checked={form.warmOnStart}
-                onChange={(e) => setForm((f) => ({ ...f, warmOnStart: e.target.checked }))}
-              />
-              <label htmlFor="pf-warm" className="modal-checkbox-label">
-                Prepare terminal when the app opens
-              </label>
-              <FormFieldHint text="Opens an idle login shell only (not the saved command). Uses more memory." />
             </div>
           </div>
           <div className="modal-field">

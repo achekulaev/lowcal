@@ -46,6 +46,9 @@
   --shadow-sidebar: 3px 0 7px rgba(0, 0, 0, 0.35);
   --error-bg: rgba(248, 81, 73, 0.08);
   --error-fg: #ffb1a9;
+  --accent-bg: rgba(88, 166, 255, 0.10);
+  --button-primary-fill: #1f6feb;
+  --button-primary-fg: #ffffff;
   --invoke: #f85149;
   /* Tint for `&&`, `||`, `;`, `|`, `&` in the command snippet so the eye can
      pick out sub-command boundaries. Purple keeps it distinct from `--invoke`
@@ -93,6 +96,9 @@
   --shadow-sidebar: 3px 0 7px rgba(0, 0, 0, 0.35);
   --error-bg: rgba(248, 81, 73, 0.08);
   --error-fg: #ffb1a9;
+  --accent-bg: rgba(88, 166, 255, 0.10);
+  --button-primary-fill: #1f6feb;
+  --button-primary-fg: #ffffff;
   --invoke: #f85149;
   --cmd-separator: #c08cff;
   --muted-tint-bg: rgba(139, 148, 158, 0.1);
@@ -138,16 +144,19 @@
   --shadow-sidebar: 2px 0 6px rgba(31, 35, 40, 0.10);
   --error-bg: rgba(207, 34, 46, 0.08);
   --error-fg: #a40e26;
+  --accent-bg: rgba(9, 105, 218, 0.10);
+  --button-primary-fill: #0969da;
+  --button-primary-fg: #ffffff;
   --invoke: #cf222e;
   --cmd-separator: #8250df;
   --muted-tint-bg: rgba(101, 109, 118, 0.08);
   --muted-tint-bg-hover: rgba(101, 109, 118, 0.14);
   --muted-tint-border: rgba(101, 109, 118, 0.35);
   --muted-tint-border-hover: rgba(101, 109, 118, 0.7);
-  /* macOS System Settings–style gray fills (~#dcdcdc); no stroked bezel */
-  --button-fill: #dcdcdc;
+  /* macOS System Settings–style gray fills; no stroked bezel */
+  --button-fill: #DADADA;
   --button-border: transparent;
-  --button-fill-hover: #cfcfcf;
+  --button-fill-hover: #cacaca;
   /* Neutral label / glyph on tertiary fills (Apple Settings–style vs blue link accent) */
   --button-fg: #1d1d1f;
   --sidebar-search-fill: #ebebeb;
@@ -452,11 +461,45 @@ body {
   border-color: color-mix(in srgb, var(--button-fill) 86%, #000 14%);
 }
 
+/* WebKit flex + SVG: icons can sit off-center until given an identity transform. */
+.sidebar-head-actions .sidebar-add-icon-btn svg {
+  display: block;
+  flex-shrink: 0;
+  transform: translateX(0);
+}
+
 /* Sidebar header Stop-all action: tints to the stopped red on hover so it
    reads as a destructive bulk control next to the neutral search / new. */
+.sidebar-stop-all-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
 .sidebar-stop-all-btn:hover {
   border-color: color-mix(in srgb, var(--stopped) 75%, transparent);
   color: var(--stopped-hover);
+}
+
+/* New-terminal (+) button: off-green tint on background + border (mirrors
+   the tag-folder-count-pill--active pattern). */
+.sidebar-new-terminal-btn {
+  background: color-mix(in srgb, var(--running) 12%, transparent);
+  border-color: color-mix(in srgb, var(--running) 35%, transparent);
+}
+
+
+.sidebar-new-terminal-btn:hover {
+  background: color-mix(in srgb, var(--running) 20%, transparent);
+  border-color: color-mix(in srgb, var(--running) 55%, transparent);
+  color: var(--button-fg);
+}
+
+/* Bold: expand the fill outward with a same-color stroke. */
+.sidebar-new-terminal-btn svg path {
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  paint-order: stroke fill;
 }
 
 /*
@@ -1607,9 +1650,9 @@ body {
 }
 
 .modal-footer button.primary {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--bg);
+  border-color: transparent;
+  color: var(--button-primary-fg);
+  background: var(--button-primary-fill);
 }
 
 .modal-footer button.danger {

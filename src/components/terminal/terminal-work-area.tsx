@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import type { ReactNode } from "react";
-import { TERMINAL_FIRST_REVEAL_HOLD_MS } from "../../constants/terminal-ui";
 import type { GlobalSettings, ResolvedTheme } from "../../settings/global-settings";
 import type { ProfileDto } from "../../types/profile";
 import { EmptyStateTerminalIcon } from "../profile-icons";
@@ -41,64 +40,6 @@ export function TerminalWorkArea({
     [mountedIds, shellEnsured],
   );
 
-  /**
-   * First time a PTY-backed layer mounts (`mountedShellIds`) for a profile — wall-clock horizon for
-   * the post-bridge **Initializing terminal…** cover. Returning to an old tab skips once `now` has
-   * passed that horizon (deadline keyed on PTY-shell mount).
-   *
-   * **Skip the hold** when (a) WS became ready while that tab was hidden (inactive bridge), e.g.
-   * another tab foreground; or when (b) the profile has **Prepare terminal when the app opens**
-   * (`warmOnStart` / `warm_on_start`) so the shell was warmed at launch rather than lazily when first
-   * focused.
-   */
-  const firstRevealHoldUntilMsRef = useRef<Record<string, number>>({});
-  /** Bridge flipped to ready while `selectedId` was another profile → xterm is already live before first focus → skip Initializing overlay. */
-  const bridgeReadyWhileInactiveProfileIdsRef = useRef<Set<string>>(new Set());
-  const prevBridgeReadyRef = useRef<Record<string, boolean>>({});
-  const [revealHoldTick, setRevealHoldTick] = useState(0);
-  const mountedShellFingerprint = useMemo(
-    () => mountedShellIds.slice().sort().join("\0"),
-    [mountedShellIds],
-  );
-
-  useEffect(() => {
-    const valid = new Set(mountedShellIds);
-    const map = firstRevealHoldUntilMsRef.current;
-    for (const k of Object.keys(map)) {
-      if (!valid.has(k)) delete map[k];
-    }
-    const prewarmed = bridgeReadyWhileInactiveProfileIdsRef.current;
-    for (const k of [...prewarmed]) {
-      if (!valid.has(k)) prewarmed.delete(k);
-    }
-  }, [mountedShellFingerprint]);
-
-  useEffect(() => {
-    const prev = prevBridgeReadyRef.current;
-    const sel = selectedId;
-    for (const id of mountedShellIds) {
-      const was = !!prev[id];
-      const now = !!bridgeReady[id];
-      if (now && !was && sel !== id) {
-        bridgeReadyWhileInactiveProfileIdsRef.current.add(id);
-      }
-    }
-    prevBridgeReadyRef.current = { ...bridgeReady };
-  }, [bridgeReady, selectedId, mountedShellFingerprint]);
-
-  useEffect(() => {
-    const now = Date.now();
-    for (const id of mountedShellIds) {
-      if (firstRevealHoldUntilMsRef.current[id] != null) continue;
-      const until = now + TERMINAL_FIRST_REVEAL_HOLD_MS;
-      firstRevealHoldUntilMsRef.current[id] = until;
-      window.setTimeout(
-        () => setRevealHoldTick((t) => t + 1),
-        Math.max(0, until - Date.now()) + 10,
-      );
-    }
-  }, [mountedShellFingerprint]);
-
   // When `coverMessage` is a ReactNode the cover is rendered. The
   // no-selection branch returns a layered empty-state (glyph + headline +
   // body + hint); transient state branches stay as plain strings so they
@@ -130,19 +71,8 @@ export function TerminalWorkArea({
     if (!bridgeReady[selectedId]) {
       return "Connecting…";
     }
-    /** Profile checkbox: Prepare terminal when the app opens (`warm_on_start`). */
-    if (sel.warmOnStart) {
-      return null;
-    }
-    if (bridgeReadyWhileInactiveProfileIdsRef.current.has(selectedId)) {
-      return null;
-    }
-    const holdUntil = firstRevealHoldUntilMsRef.current[selectedId];
-    if (holdUntil != null && Date.now() < holdUntil) {
-      return "Initializing terminal…";
-    }
     return null;
-  }, [profiles, selectedId, shellEnsured, bridgeReady, revealHoldTick]);
+  }, [profiles, selectedId, shellEnsured, bridgeReady]);
 
   const foregroundLayerId = useMemo(() => {
     if (!selectedId || !mountedShellIds.includes(selectedId)) return null;
