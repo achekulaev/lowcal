@@ -1,6 +1,6 @@
 [package]
 name = "terminal-orchestrator"
-version = "0.10.0"
+version = "0.11.0"
 description = "Tagged PTY terminal orchestrator"
 authors = ["you"]
 edition = "2021"
@@ -35,14 +35,6 @@ base64 = "0.22"
 dirs = "5"
 tauri-plugin-dialog = "2"
 notify = "6"
-
-# Dev-only HTTP/WS bridge into the running app for the `tauri-browser` CLI
-# (https://github.com/thrashr888/tauri-browser). The plugin's HTTP/WS server
-# is gated upstream by `#[cfg(debug_assertions)]`, so `npm run tauri build`
-# (release profile) compiles out the server — the crate is still linked but
-# `init()` is a no-op there. Drives byte-level PTY diagnostics gated at
-# runtime by `LOWCAL_DEBUG_BYTES=1` so normal dev runs stay quiet too.
-tauri-plugin-debug-bridge = "0.4"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

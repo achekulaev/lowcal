@@ -143,9 +143,12 @@ pub struct SessionRuntime {
     /// `last_exit_code` this lets the UI distinguish "stopped because the user pressed
     /// Stop" (gray) from "Start-injected command finished on its own and failed" (red).
     started_via_ui: Arc<AtomicBool>,
-    /// Exit code captured from the APC marker printed after the Start-injected command.
+    /// Exit code captured via shell integration (OSC 133;D) or the APC suffix fallback.
     /// `None` while a Start is in flight or after a Stop / Restart resets it.
     last_exit_code: Arc<parking_lot::Mutex<Option<i32>>>,
+    /// Which shell family this session uses — determines whether `inject_profile_command`
+    /// appends the APC suffix (unknown shells) or relies on the OSC 133;D hook (known).
+    shell_kind: ShellKind,
 }
 
 pub struct AppStateInner {
@@ -930,82 +933,131 @@ fn dispose_runtime_quiet(rt: SessionRuntime) {
     }
 }
 
-/// Exact bytes that `inject_profile_command` appends to every Start-injected command. All
-/// printable ASCII — the `\033` here is the four literal characters `\`, `0`, `3`, `3`, not
-/// the byte `0x1B`. The shell's `printf` interprets the escapes at execution time and emits
-/// the real APC sequence; the printable form is what we *send into* the PTY and therefore
-/// what `readline`/`zle` echoes back as visible text on the prompt line.
-///
-/// Shared with `InjectedEchoScrubber` so the injection and the scrub-pattern can never
-/// drift out of sync.
+/// Suffix appended to Start-injected commands for **unknown shells** that have no
+/// shell-integration hook. All printable ASCII — the shell's `printf` interprets `\033`
+/// as ESC at execution time and emits the real APC sequence. The echo of this suffix is
+/// stripped by `InjectedEchoScrubber` before reaching xterm.js.
 const INJECTED_ECHO_SUFFIX: &[u8] = b"; printf '\\033_LOWCAL_RC=%d\\033\\\\' \"$?\"";
 
-/// Streaming scanner for the APC exit-code marker that `inject_profile_command` appends
-/// after every Start-injected command:
+/// Streaming scanner that recognises two exit-code markers:
 ///
+/// **Primary — OSC 133;D (shell integration hooks for bash/zsh/fish):**
 /// ```text
-/// ESC _ L O W C A L _ R C = <digits> ESC \
+/// ESC ] 133 ; D ; <digits> BEL
 /// ```
+/// Emitted by the `precmd` / `PROMPT_COMMAND` / `fish_postexec` hooks installed by our
+/// shell-integration rc files. xterm.js dispatches unknown OSC numbers to a no-op
+/// handler, so this marker is invisible in the rendered terminal.
 ///
-/// `ESC _ ... ESC \` is APC (Application Program Command). xterm.js consumes APC sequences
-/// silently by default, so the marker is invisible in the rendered terminal — but the PTY
-/// reader thread sees the raw bytes and pulls the integer out here.
+/// **Secondary — APC fallback (unknown shells via suffix injection):**
+/// ```text
+/// ESC _ LOWCAL_RC = <digits> ESC \
+/// ```
+/// Emitted by the `printf` appended to injected commands for unrecognised shells.
+/// xterm.js's APC state exits cleanly on `0x9c`; the `ESC \` terminator sometimes leaks
+/// a stray `\` but that is a pre-existing limitation of the fallback path.
+///
+/// The scanner drains all fully-formed markers from a rolling tail and returns the
+/// **last** code seen per `feed` call so back-to-back markers collapse to one UI update.
 ///
 /// Owned by the reader thread; not thread-safe (single owner only).
 struct ExitCodeScanner {
     pending: Vec<u8>,
 }
 
+const OSC133_D_PREFIX: &[u8] = b"\x1b]133;D;";
 const APC_PREFIX: &[u8] = b"\x1b_LOWCAL_RC=";
-const APC_SUFFIX: &[u8] = b"\x1b\\";
-/// Cap on the rolling tail kept across PTY reads. Comfortably larger than any plausible
-/// marker (prefix + ~10 digits + suffix is well under this) so a marker split across
-/// chunks always reassembles.
-const APC_BUF_CAP: usize = 1024;
+const SCAN_BUF_CAP: usize = 1024;
 
 impl ExitCodeScanner {
-    fn new() -> Self {
-        Self { pending: Vec::new() }
-    }
+    fn new() -> Self { Self { pending: Vec::new() } }
 
-    /// Append `chunk` to the rolling tail, then drain every fully-formed marker. Returns
-    /// the **last** code seen in this call (most recent command), or `None` if no full
-    /// marker was completed yet.
     fn feed(&mut self, chunk: &[u8]) -> Option<i32> {
         self.pending.extend_from_slice(chunk);
         let mut found = None;
-        loop {
-            let Some(start) = self
-                .pending
-                .windows(APC_PREFIX.len())
-                .position(|w| w == APC_PREFIX)
-            else {
-                break;
-            };
-            let after_prefix = start + APC_PREFIX.len();
-            let Some(end_off) = self.pending[after_prefix..]
-                .windows(APC_SUFFIX.len())
-                .position(|w| w == APC_SUFFIX)
-            else {
-                // Suffix not arrived yet — drop everything strictly before the prefix so the
-                // tail keeps growing only with bytes that could still complete this marker.
-                self.pending.drain(..start);
-                break;
-            };
-            let digits = &self.pending[after_prefix..after_prefix + end_off];
-            if let Ok(s) = std::str::from_utf8(digits) {
-                if let Ok(n) = s.parse::<i32>() {
-                    found = Some(n);
+
+        'outer: loop {
+            // Find whichever marker prefix comes first.
+            let osc_pos = self.pending.windows(OSC133_D_PREFIX.len())
+                .position(|w| w == OSC133_D_PREFIX);
+            let apc_pos = self.pending.windows(APC_PREFIX.len())
+                .position(|w| w == APC_PREFIX);
+
+            match (osc_pos, apc_pos) {
+                (None, None) => break,
+                (Some(o), Some(a)) if a < o => {
+                    // APC comes first — handle it.
+                    if let Some(code) = Self::try_drain_apc(&mut self.pending, a) {
+                        found = Some(code);
+                        continue 'outer;
+                    }
+                    break;
+                }
+                (Some(o), _) => {
+                    // OSC 133;D comes first — handle it.
+                    if let Some(code) = Self::try_drain_osc133(&mut self.pending, o) {
+                        found = Some(code);
+                        continue 'outer;
+                    }
+                    break;
+                }
+                (None, Some(a)) => {
+                    if let Some(code) = Self::try_drain_apc(&mut self.pending, a) {
+                        found = Some(code);
+                        continue 'outer;
+                    }
+                    break;
                 }
             }
-            let total_end = after_prefix + end_off + APC_SUFFIX.len();
-            self.pending.drain(..total_end);
         }
-        if self.pending.len() > APC_BUF_CAP {
-            let drop = self.pending.len() - APC_BUF_CAP;
+
+        if self.pending.len() > SCAN_BUF_CAP {
+            let drop = self.pending.len() - SCAN_BUF_CAP;
             self.pending.drain(..drop);
         }
         found
+    }
+
+    /// Try to drain one complete `ESC ] 133 ; D ; <digits> (BEL|ESC\|0x9c)` at `start`.
+    /// Returns the parsed code on success and drains the marker. Returns `None` and trims
+    /// the buffer up to `start` when the terminator hasn't arrived yet.
+    fn try_drain_osc133(buf: &mut Vec<u8>, start: usize) -> Option<i32> {
+        let after = start + OSC133_D_PREFIX.len();
+        // Scan for any accepted OSC terminator: BEL (0x07), ST (ESC \), or 0x9c.
+        let term_pos = buf[after..].iter().position(|&b| {
+            b == 0x07 || b == 0x9c || b == 0x1b
+        })?;
+        let term_start = after + term_pos;
+        let term_end = if buf[term_start] == 0x1b {
+            // Needs a second byte `\`; if not yet arrived, keep buffering.
+            if term_start + 1 >= buf.len() { return None; }
+            if buf[term_start + 1] != b'\\' {
+                // Not ST — skip this ESC and keep searching.
+                buf.drain(..term_start + 1);
+                return None;
+            }
+            term_start + 2
+        } else {
+            term_start + 1
+        };
+        // Digits (and optional ;key=value FinalTerm fields) between prefix and terminator.
+        let raw = std::str::from_utf8(&buf[after..term_start]).ok()?;
+        let digits = raw.split(';').next().unwrap_or("");
+        let code = digits.parse::<i32>().ok();
+        buf.drain(..term_end);
+        code
+    }
+
+    /// Try to drain one complete `ESC _ LOWCAL_RC = <digits> ESC \` at `start`.
+    fn try_drain_apc(buf: &mut Vec<u8>, start: usize) -> Option<i32> {
+        let after = start + APC_PREFIX.len();
+        const APC_TERM: &[u8] = b"\x1b\\";
+        let end_off = buf[after..].windows(APC_TERM.len())
+            .position(|w| w == APC_TERM)?;
+        let digits = std::str::from_utf8(&buf[after..after + end_off]).ok()?;
+        let code = digits.parse::<i32>().ok();
+        buf.drain(..after + end_off + APC_TERM.len());
+        code
     }
 }
 
@@ -1039,6 +1091,41 @@ fn escape_bytes_for_log(bytes: &[u8]) -> String {
         }
     }
     out
+}
+
+/// Returns a handle to the per-process debug log file, creating it on first call.
+/// Path: `$TMPDIR/lowcal-debug/YYYYMMDD-HHMMSS.<pid>.log`
+fn debug_log() -> Option<&'static std::sync::Mutex<std::io::BufWriter<fs::File>>> {
+    static LOG: std::sync::OnceLock<Option<std::sync::Mutex<std::io::BufWriter<fs::File>>>> =
+        std::sync::OnceLock::new();
+    LOG.get_or_init(|| {
+        if !lowcal_debug_bytes_enabled() { return None; }
+        let dir = std::env::temp_dir().join("lowcal-debug");
+        fs::create_dir_all(&dir).ok()?;
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs()).unwrap_or(0);
+        let s = secs % 60; let m = (secs / 60) % 60; let h = (secs / 3600) % 24;
+        let days = secs / 86400;
+        let y = 1970 + days / 365; let yd = days % 365;
+        let mo = yd / 30 + 1; let d = yd % 30 + 1;
+        let name = format!("{y:04}{mo:02}{d:02}-{h:02}{m:02}{s:02}.{}.log", std::process::id());
+        let path = dir.join(&name);
+        eprintln!("[lowcal] LOWCAL_DEBUG_BYTES → {}", path.display());
+        let file = fs::File::create(&path).ok()?;
+        Some(std::sync::Mutex::new(std::io::BufWriter::new(file)))
+    }).as_ref()
+}
+
+/// Write one line to the debug log file. No-op when `LOWCAL_DEBUG_BYTES` is unset.
+fn debug_writeln(line: &str) {
+    use std::io::Write;
+    if let Some(lock) = debug_log() {
+        if let Ok(mut w) = lock.lock() {
+            let _ = writeln!(w, "{line}");
+            let _ = w.flush();
+        }
+    }
 }
 
 /// Streaming filter that removes the **echo** of `INJECTED_ECHO_SUFFIX` from PTY output
@@ -1130,6 +1217,112 @@ impl InjectedEchoScrubber {
     }
 }
 
+// ── Shell integration ─────────────────────────────────────────────────────────
+
+/// Identifies the shell family so we know how to wire the integration hook.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ShellKind { Bash, Zsh, Fish, Other }
+
+fn detect_shell_kind(shell_path: &std::path::Path) -> ShellKind {
+    let name = shell_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .map(|s| s.trim_start_matches('-'))
+        .unwrap_or("");
+    match name {
+        "bash" | "bash.exe" => ShellKind::Bash,
+        "zsh"  | "zsh.exe"  => ShellKind::Zsh,
+        "fish" | "fish.exe" => ShellKind::Fish,
+        _ => ShellKind::Other,
+    }
+}
+
+/// Materialises the bundled shell-integration files into
+/// `<app_local_data_dir>/shell-integration/` once per process, and returns the
+/// directory path. Uses a `OnceLock` so subsequent shell spawns are free.
+fn shell_integration_dir(app: &AppHandle) -> Option<PathBuf> {
+    static DIR: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let base = app.path().app_local_data_dir().ok()?;
+        let dir = base.join("shell-integration");
+        let zdotdir = dir.join("zdotdir");
+        fs::create_dir_all(&zdotdir).ok()?;
+
+        macro_rules! write_file {
+            ($path:expr, $content:expr) => {
+                fs::write($path, $content).ok()?;
+            };
+        }
+        write_file!(dir.join("integration.bash"),
+            include_str!("../shell-integration/integration.bash"));
+        write_file!(dir.join("integration.zsh"),
+            include_str!("../shell-integration/integration.zsh"));
+        write_file!(dir.join("integration.fish"),
+            include_str!("../shell-integration/integration.fish"));
+        write_file!(zdotdir.join(".zshrc"),
+            include_str!("../shell-integration/zdotdir/.zshrc"));
+        write_file!(zdotdir.join(".zprofile"),
+            include_str!("../shell-integration/zdotdir/.zprofile"));
+        write_file!(zdotdir.join(".zshenv"),
+            include_str!("../shell-integration/zdotdir/.zshenv"));
+        write_file!(zdotdir.join(".zlogin"),
+            include_str!("../shell-integration/zdotdir/.zlogin"));
+
+        Some(dir)
+    }).clone()
+}
+
+/// Wire the shell command and env vars for shell integration. Returns the shell
+/// kind (used later by `inject_profile_command` to decide whether to append the
+/// suffix fallback for unknown shells).
+fn apply_shell_integration(
+    app: &AppHandle,
+    shell_path: &std::path::Path,
+    cmd: &mut CommandBuilder,
+) -> ShellKind {
+    let kind = detect_shell_kind(shell_path);
+    let Some(dir) = shell_integration_dir(app) else {
+        tracing::warn!("shell integration dir unavailable — falling back to plain shell");
+        return ShellKind::Other;
+    };
+
+    match kind {
+        ShellKind::Bash => {
+            // bash -l does not honour --rcfile, so we drop -l and replay the
+            // login chain ourselves inside integration.bash.
+            cmd.arg("--rcfile");
+            cmd.arg(dir.join("integration.bash"));
+        }
+        ShellKind::Zsh => {
+            // ZDOTDIR redirect causes zsh to read our shim startup files which
+            // chain to the user's real files, then source integration.zsh.
+            // LOWCAL_ORIG_ZDOTDIR lets the shims find the user's actual files.
+            // LOWCAL_INTEGRATION_DIR lets integration.zsh be located without
+            // relying on $0 (which is "zsh" in auto-sourced .zshrc — pitfall #2).
+            let orig_zdotdir = std::env::var_os("ZDOTDIR")
+                .unwrap_or_else(|| std::env::var_os("HOME").unwrap_or_default());
+            cmd.env("ZDOTDIR", dir.join("zdotdir"));
+            cmd.env("LOWCAL_ORIG_ZDOTDIR", orig_zdotdir);
+            cmd.env("LOWCAL_INTEGRATION_DIR", &dir);
+        }
+        ShellKind::Fish => {
+            // -C runs after config.fish so our hook installs after the user's config.
+            let snippet = format!("source '{}'", dir.join("integration.fish").display());
+            cmd.arg("-C");
+            cmd.arg(snippet);
+        }
+        ShellKind::Other => {
+            tracing::warn!(
+                shell = %shell_path.display(),
+                "unrecognised shell — using suffix injection fallback (no shell integration)"
+            );
+        }
+    }
+    kind
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /// Spawn an interactive login shell for this profile (cwd + env from config). Idempotent.
 fn spawn_shell_session(app: &AppHandle, state: &SharedState, profile_id: &str) -> Result<(), String> {
     let profile = state
@@ -1146,7 +1339,9 @@ fn spawn_shell_session(app: &AppHandle, state: &SharedState, profile_id: &str) -
         }
     }
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into());
+    let shell_path = std::env::var_os("SHELL")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/bin/bash"));
 
     let (output_tx, _) = broadcast::channel::<Vec<u8>>(4096);
     let (ctl_tx, ctl_rx) = std::sync::mpsc::channel::<PtyCtl>();
@@ -1161,7 +1356,10 @@ fn spawn_shell_session(app: &AppHandle, state: &SharedState, profile_id: &str) -
         })
         .map_err(|e| e.to_string())?;
 
-    let mut cmd = CommandBuilder::new(&shell);
+    let mut cmd = CommandBuilder::new(&shell_path);
+    // Keep -l for zsh and fish (integration honours login semantics).
+    // Bash drops -l because --rcfile only works for non-login interactive bash.
+    // Other shells keep -l.
     cmd.arg("-l");
 
     // PTY output is rendered by xterm.js, so the terminal type is *always*
@@ -1172,6 +1370,18 @@ fn spawn_shell_session(app: &AppHandle, state: &SharedState, profile_id: &str) -
     // is healthy. profile.env still overrides these via the loop below.
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+
+    // Wire shell integration. For bash, apply_shell_integration removes the -l
+    // already added above and adds --rcfile instead.
+    let shell_kind = apply_shell_integration(app, &shell_path, &mut cmd);
+    if shell_kind == ShellKind::Bash {
+        // Drop the -l we just added; apply_shell_integration added --rcfile.
+        // portable-pty's CommandBuilder doesn't expose removal so we rebuild.
+        cmd = CommandBuilder::new(&shell_path);
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
+        let _ = apply_shell_integration(app, &shell_path, &mut cmd);
+    }
 
     if let Some(ref cwd) = profile.cwd {
         cmd.cwd(expand_path(cwd));
@@ -1229,36 +1439,36 @@ fn spawn_shell_session(app: &AppHandle, state: &SharedState, profile_id: &str) -
                 Ok(n) => {
                     let chunk = &buf[..n];
                     if debug_bytes {
-                        tracing::debug!(
-                            profile_id = %id_reader,
-                            len = chunk.len(),
-                            raw = %escape_bytes_for_log(chunk),
-                            "pty_read"
-                        );
+                        debug_writeln(&format!(
+                            "pty_read  profile={} len={} raw={}",
+                            id_reader, chunk.len(), escape_bytes_for_log(chunk)
+                        ));
                     }
-                    // Scrub the *visible echo* of the injected suffix before forwarding to
-                    // xterm.js. The exit-code scanner still consumes the raw chunk below
-                    // because it needs to see the real APC bytes emitted at execution time;
-                    // those are a different byte sequence from the printable echo and are
-                    // never matched by the scrubber.
+                    // Scrub the visible echo of the injected suffix (unknown-shell fallback
+                    // only — known shells produce no suffix). For known shells the scrubber
+                    // is effectively a passthrough since INJECTED_ECHO_SUFFIX is never sent.
                     let visible = scrubber.feed(chunk);
                     if debug_bytes {
-                        tracing::debug!(
-                            profile_id = %id_reader,
-                            forwarded_len = visible.len(),
-                            held_back_len = scrubber.pending_len(),
-                            forwarded = %escape_bytes_for_log(&visible),
-                            held = %escape_bytes_for_log(scrubber.pending_snapshot()),
-                            "scrubber_step"
-                        );
+                        debug_writeln(&format!(
+                            "scrubber  profile={} forwarded={} fwd={}",
+                            id_reader, visible.len(),
+                            escape_bytes_for_log(&visible),
+                        ));
                     }
                     if !visible.is_empty() {
                         let _ = output_reader.send(visible);
                     }
-                    // APC marker tap: populate `last_exit_code` the moment the Start-injected
-                    // command exits with a non-zero status. Emit a profile update so the dot
-                    // can repaint even if the watchdog hasn't yet cleared `command_running`.
+                    // Exit-code capture: OSC 133;D (shell integration, all known shells)
+                    // or APC LOWCAL_RC= (suffix fallback for unknown shells). No
+                    // command_running gate — we record the exit code unconditionally so
+                    // the implementation stays simple. The red dot only shows when
+                    // started_via_ui is also true, which is only set by Start.
                     if let Some(code) = scanner.feed(chunk) {
+                        if debug_bytes {
+                            debug_writeln(&format!(
+                                "exit_code profile={} code={}", id_reader, code
+                            ));
+                        }
                         *last_exit_code_reader.lock() = Some(code);
                         emit_profiles(&app_reader, &state_reader);
                     }
@@ -1335,6 +1545,7 @@ fn spawn_shell_session(app: &AppHandle, state: &SharedState, profile_id: &str) -
         watch_gate,
         started_via_ui,
         last_exit_code,
+        shell_kind,
     };
 
     state
@@ -1453,20 +1664,19 @@ fn inject_profile_command(
     cwd: Option<&str>,
     command: &str,
 ) -> Result<(), String> {
-    let ctl_tx = state
-        .sessions
-        .lock()
-        .get(profile_id)
-        .map(|rt| rt.ctl_tx.clone())
-        .ok_or_else(|| format!("no shell session for {profile_id}"))?;
+    let (ctl_tx, shell_kind) = {
+        let g = state.sessions.lock();
+        let rt = g.get(profile_id)
+            .ok_or_else(|| format!("no shell session for {profile_id}"))?;
+        (rt.ctl_tx.clone(), rt.shell_kind)
+    };
 
     let mut payload: Vec<u8> = vec![0x03, b'\r', b'\n'];
     // Prefix `cd '<assigned cwd>' && ` so Start always runs the saved command from the
     // configured folder — the PTY is interactive, so the user may have `cd`'d away
     // between Starts. `cd` to the same dir is a harmless no-op. If `cd` fails (folder
-    // gone), `&&` short-circuits so the user's command does NOT run in the wrong place;
-    // the failure renders the red dot via the trailing printf below. `~/` is expanded
-    // before quoting because a quoted `~` is treated literally by POSIX shells.
+    // gone), `&&` short-circuits so the user's command does NOT run in the wrong place.
+    // `~/` is expanded before quoting because a quoted `~` is treated literally by POSIX.
     if let Some(raw) = cwd {
         let trimmed = raw.trim();
         if !trimmed.is_empty() {
@@ -1478,27 +1688,25 @@ fn inject_profile_command(
         }
     }
     payload.extend_from_slice(command.as_bytes());
-    // Append an APC marker emitter on the same logical line. The exact bytes live in
-    // `INJECTED_ECHO_SUFFIX` so `InjectedEchoScrubber` (which strips the visible echo from
-    // the output stream before it reaches xterm.js) can match against the same constant —
-    // the injection and the scrub-pattern can never drift apart.
+
+    // For known shells (bash/zsh/fish) the exit code is captured by the shell
+    // integration hook (`precmd` / `PROMPT_COMMAND` / `fish_postexec`) which emits
+    // OSC 133;D after every command. No suffix needed and no echo to scrub.
     //
-    // When `printf` actually runs, it interprets `\033` → ESC and emits the APC sequence
-    //   ESC _LOWCAL_RC=<digits> ESC \
-    // which xterm.js consumes silently and which `ExitCodeScanner` parses to populate
-    // `SessionRuntime.last_exit_code`. POSIX `$?` covers bash / zsh / dash / ksh / sh;
-    // **fish** uses `$status` and so won't trigger the red-dot indicator. The trailing
-    // `; ` is also skipped if the user's command ends with a `#` comment or `&` background
-    // terminator — those degrade to the existing gray dot.
-    payload.extend_from_slice(INJECTED_ECHO_SUFFIX);
+    // For unknown shells (ksh, dash, tcsh, …) we fall back to the APC printf suffix.
+    // The `InjectedEchoScrubber` in the reader thread strips its visible echo. This
+    // works reliably for non-zsh shells because they lack autosuggestions plugins that
+    // would interleave bytes between the echoed characters.
+    if shell_kind == ShellKind::Other {
+        payload.extend_from_slice(INJECTED_ECHO_SUFFIX);
+    }
+
     payload.extend_from_slice(b"\r\n");
     if lowcal_debug_bytes_enabled() {
-        tracing::debug!(
-            profile_id = %profile_id,
-            payload_len = payload.len(),
-            payload = %escape_bytes_for_log(&payload),
-            "inject_profile_command"
-        );
+        debug_writeln(&format!(
+            "inject    profile={} shell={:?} payload_len={} payload={}",
+            profile_id, shell_kind, payload.len(), escape_bytes_for_log(&payload)
+        ));
     }
     ctl_tx
         .send(PtyCtl::Stdin(payload))
@@ -2210,14 +2418,19 @@ fn install_macos_app_menu(app: &tauri::App) -> tauri::Result<()> {
 pub fn run() {
     init_stdio_tracing();
 
+    // Write a startup marker to the debug log so it's unambiguous that the
+    // process restarted. Includes PID + wall-clock seconds since epoch.
+    {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let pid = std::process::id();
+        debug_writeln(&format!("=== PROCESS START pid={pid} epoch_secs={secs} ==="));
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        // Dev-only HTTP/WS bridge for the `tauri-browser` CLI. The plugin's
-        // HTTP server is gated upstream by `#[cfg(debug_assertions)]`, so
-        // release builds compile out the server and `init()` is a no-op —
-        // end users never get a debug port open. See
-        // `src-tauri/capabilities/debug-bridge.json` for the matching permission.
-        .plugin(tauri_plugin_debug_bridge::init())
         .on_menu_event(|app, event| {
             match event.id().as_ref() {
                 "preferences" => {
