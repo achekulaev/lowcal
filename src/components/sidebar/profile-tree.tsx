@@ -307,7 +307,7 @@ function TagFolderRow(props: {
       <div
         className="tag-folder-children-wrap"
         aria-hidden={!expanded}
-        inert={!expanded ? "" : undefined}
+        {...(!expanded ? ({ inert: "" } as Record<string, unknown>) : {})}
       >
         <div
           id={nestedListId}
