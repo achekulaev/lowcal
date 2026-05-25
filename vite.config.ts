@@ -9,5 +9,8 @@ export default defineConfig({
     strictPort: true,
     watch: { ignored: ["**/src-tauri/**"] },
   },
+  build: {
+    chunkSizeWarningLimit: 1000, // kB; desktop app — no network concern
+  },
   envPrefix: ["VITE_", "TAURI_"],
 });

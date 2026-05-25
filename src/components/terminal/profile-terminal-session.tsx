@@ -10,6 +10,7 @@ import {
 } from "../../settings/global-settings";
 import { waitWsOrigin } from "../../tauri/wait-ws-origin";
 import { base64ToUint8Array, utf8ToBase64 } from "../../utils/ws-encoding";
+import { snapWindowToTerminalLines } from "../../utils/window-snap";
 
 /**
  * One persistent xterm per opened profile: PTY runs an interactive login shell; Start injects the
@@ -56,6 +57,10 @@ export function ProfileTerminalSession({
   // Capture terminal options at first render. Subsequent updates are ignored
   // by design — see the file-level comment + decision doc.
   const terminalSettingsAtMountRef = useRef(terminalSettings);
+  // Snap-to-whole-lines state: debounce timer + in-flight guard to avoid
+  // infinite ResizeObserver ↔ setSize loops.
+  const snapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isSnappingRef = useRef(false);
 
   useLayoutEffect(() => {
     if (!isForeground) return;
@@ -66,6 +71,9 @@ export function ProfileTerminalSession({
       if (t && w?.readyState === WebSocket.OPEN) {
         w.send(JSON.stringify({ type: "resize", cols: t.cols, rows: t.rows }));
       }
+      // Snap the window so this tab's rows fill a whole number of lines.
+      const host = hostRef.current;
+      if (t && host) void snapWindowToTerminalLines(t, host);
     });
   }, [isForeground]);
 
@@ -95,8 +103,10 @@ export function ProfileTerminalSession({
     fit.fit();
     // Fit once more after layout so scrollBarWidth / column count match the visible gutter
     // (overlay scrollbars on macOS WKWebView otherwise leave the canvas one column too wide).
+    // Also snap the window height to a whole number of terminal rows on startup.
     requestAnimationFrame(() => {
       fitRef.current?.fit();
+      if (isForegroundRef.current) void snapWindowToTerminalLines(term, host);
     });
     termRef.current = term;
     fitRef.current = fit;
@@ -111,11 +121,30 @@ export function ProfileTerminalSession({
       if (t && w?.readyState === WebSocket.OPEN) {
         w.send(JSON.stringify({ type: "resize", cols: t.cols, rows: t.rows }));
       }
+      // Debounced window snap: wait for the user to finish dragging the resize
+      // handle, then nudge the window to the nearest whole line boundary.
+      // The isSnappingRef guard prevents an infinite ResizeObserver ↔ setSize loop.
+      if (isForegroundRef.current && !isSnappingRef.current && t) {
+        if (snapTimerRef.current !== null) clearTimeout(snapTimerRef.current);
+        snapTimerRef.current = setTimeout(() => {
+          snapTimerRef.current = null;
+          if (!isSnappingRef.current && isForegroundRef.current && termRef.current) {
+            isSnappingRef.current = true;
+            void snapWindowToTerminalLines(termRef.current, host).finally(() => {
+              isSnappingRef.current = false;
+            });
+          }
+        }, 150);
+      }
     });
     ro.observe(host);
 
     return () => {
       ro.disconnect();
+      if (snapTimerRef.current !== null) {
+        clearTimeout(snapTimerRef.current);
+        snapTimerRef.current = null;
+      }
       wsRef.current?.close();
       wsRef.current = null;
       onDataDisposableRef.current?.dispose();
