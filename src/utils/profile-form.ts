@@ -12,6 +12,15 @@ export function emptyForm(): ProfileFormState {
   };
 }
 
+/**
+ * Like `emptyForm()` but with a single tag chip pre-populated — used by the
+ * sidebar tag-folder `+` button so creating a new terminal from inside a tag
+ * folder doesn't make the user retype the obvious tag.
+ */
+export function emptyFormWithTag(tag: string): ProfileFormState {
+  return { ...emptyForm(), tags: [tag] };
+}
+
 export function tagsFromCommaString(s: string): string[] {
   return s
     .split(",")

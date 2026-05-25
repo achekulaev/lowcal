@@ -3,7 +3,7 @@ import type { Dispatch, ReactNode, SetStateAction } from "react";
 import type { ProfileDto } from "../../types/profile";
 import type { ResolvedTheme } from "../../settings/global-settings";
 import { tagPillStyle } from "../../utils/tag-pills";
-import { FolderChevronIcon, OverflowMenuIcon } from "../profile-icons";
+import { FolderChevronIcon, HamburgerMenuIcon, NewTerminalIcon } from "../profile-icons";
 
 /**
  * Sentinel folder id for the "no tag" bucket. Real tags can be any user
@@ -87,6 +87,13 @@ export function ProfileTree(props: {
    * right-panel overflow button's behavior.
    */
   tagMenuOpenForTag: string | null;
+  /**
+   * Opens the profile-editor in create mode with the folder's tag already
+   * populated as a chip — invoked by the per-folder `+` button shown next to
+   * the tag pill on hover. Untagged folders never call this (the pill is the
+   * "no tag" placeholder, so there's nothing meaningful to pre-fill).
+   */
+  onNewTerminalForTag: (tag: string) => void;
 }) {
   const { profiles, allTags, selectedId, resolvedTheme, renderProfileRow, expanded, setExpanded } =
     props;
@@ -155,6 +162,9 @@ export function ProfileTree(props: {
               : (x, y) => props.onOpenTagMenu(folder.id, x, y)
           }
           menuOpen={!folder.isUntagged && props.tagMenuOpenForTag === folder.id}
+          onNewTerminal={
+            folder.isUntagged ? null : () => props.onNewTerminalForTag(folder.id)
+          }
         />
       ))}
     </div>
@@ -176,6 +186,13 @@ function TagFolderRow(props: {
    */
   onOpenMenu: ((clientX: number, clientY: number) => void) | null;
   menuOpen: boolean;
+  /**
+   * `null` for the Untagged folder (no tag to pre-fill), otherwise opens the
+   * profile-editor in create mode with the folder's tag already populated as
+   * a chip. The button sits immediately next to the tag pill — hover-revealed
+   * exactly like the overflow button.
+   */
+  onNewTerminal: (() => void) | null;
 }) {
   const { folder, profiles, expanded, toggle, resolvedTheme, renderProfileRow } = props;
   const { running, total } = folderCounts(profiles, folder.member);
@@ -199,13 +216,28 @@ function TagFolderRow(props: {
       role="treeitem"
       aria-expanded={expanded}
     >
-      <div className="tag-folder-row">
+      {/*
+       * Row-level click handler so the empty space between the `+` button
+       * and the hamburger overflow button (and the bare row strip in
+       * general) toggles the folder, matching the tag-pill behavior. The
+       * `+` button, the hamburger button, and the count pill already stop
+       * propagation on click; the header button below has no `onClick` of
+       * its own so its native click events (mouse + keyboard Enter/Space)
+       * bubble up here and reuse the same toggle path — a single source
+       * of truth, no risk of double-toggle. The header is kept as a
+       * focusable `<button>` so screen readers still get the
+       * `aria-expanded` / `aria-controls` semantics.
+       */}
+      <div
+        className="tag-folder-row"
+        onClick={toggle}
+        role="presentation"
+      >
         <button
           type="button"
           className="tag-folder-header"
           aria-expanded={expanded}
           aria-controls={nestedListId}
-          onClick={toggle}
           title={expanded ? `Collapse ${folder.label}` : `Expand ${folder.label}`}
         >
           <FolderChevronIcon expanded={expanded} />
@@ -220,6 +252,20 @@ function TagFolderRow(props: {
             </span>
           )}
         </button>
+        {props.onNewTerminal ? (
+          <button
+            type="button"
+            className="tag-folder-new-btn"
+            aria-label={`New terminal tagged ${folder.label}`}
+            title={`New terminal tagged ${folder.label}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onNewTerminal!();
+            }}
+          >
+            <NewTerminalIcon />
+          </button>
+        ) : null}
         {props.onOpenMenu ? (
           <button
             type="button"
@@ -238,7 +284,7 @@ function TagFolderRow(props: {
               props.onOpenMenu!(r.left, r.bottom + 6);
             }}
           >
-            <OverflowMenuIcon />
+            <HamburgerMenuIcon />
           </button>
         ) : null}
         <span
@@ -249,7 +295,20 @@ function TagFolderRow(props: {
           {running}/{total}
         </span>
       </div>
-      {expanded ? (
+      {/*
+       * The children wrapper is ALWAYS rendered (instead of `expanded ? … :
+       * null`) so the row collapse / expand can be a pure-CSS animation —
+       * `grid-template-rows: 0fr ↔ 1fr` on `.tag-folder-children-wrap`
+       * smoothly transitions to the children's natural height without ever
+       * having to measure it in JS. `aria-hidden` + `inert` keep collapsed
+       * content out of screen readers and the focus order even though it
+       * stays in the DOM. See `.tag-folder-children-wrap` in `styles.css`.
+       */}
+      <div
+        className="tag-folder-children-wrap"
+        aria-hidden={!expanded}
+        inert={!expanded ? "" : undefined}
+      >
         <div
           id={nestedListId}
           role="tablist"
@@ -258,7 +317,7 @@ function TagFolderRow(props: {
         >
           {members.map((p) => renderProfileRow(p, { showTagPills: showPillsOnNested }))}
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }

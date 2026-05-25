@@ -160,6 +160,22 @@ export function OverflowMenuIcon() {
   );
 }
 
+/**
+ * Three horizontal lines — bulk-action overflow trigger on sidebar tag-folder
+ * rows. Distinct from `OverflowMenuIcon` (vertical dots) used in the right-pane
+ * terminal-stage header, so the two surfaces are visually distinguishable at a
+ * glance even though both open a context menu.
+ */
+export function HamburgerMenuIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden>
+      <rect x="4" y="6" width="16" height="2" rx="1" fill="currentColor" />
+      <rect x="4" y="11" width="16" height="2" rx="1" fill="currentColor" />
+      <rect x="4" y="16" width="16" height="2" rx="1" fill="currentColor" />
+    </svg>
+  );
+}
+
 /** Cog wheel — sidebar header settings entry point. Sized to match other 10px sidebar glyphs. */
 export function SettingsGearIcon() {
   return (

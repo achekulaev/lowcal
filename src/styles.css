@@ -33,6 +33,11 @@
   --stopped: #f85149;
   --stopped-hover: #ff8a80;
   --bg-elev: #21262d;
+  /* Resting background for profile (terminal) rows in the sidebar — sits
+     a hair brighter than `--panel` so the rows visually separate from the
+     tag-folder header rows above them. `--row-hover` is one step further
+     in the same direction. */
+  --row-rest: #1a1f27;
   --row-hover: #1c2128;
   --row-selected: #1f2836;
   --terminal-cover-bg: rgba(13, 17, 23, 0.94);
@@ -85,6 +90,7 @@
   --stopped: #f85149;
   --stopped-hover: #ff8a80;
   --bg-elev: #21262d;
+  --row-rest: #1a1f27;
   --row-hover: #1c2128;
   --row-selected: #1f2836;
   --terminal-cover-bg: rgba(13, 17, 23, 0.94);
@@ -133,6 +139,12 @@
   --stopped: #cf222e;
   --stopped-hover: #a40e26;
   --bg-elev: #eaeef2;
+  /* Slightly brighter than `--panel` (#f2f2f2) so terminal rows lift off
+     the sidebar's warm gray base. Hover (`--row-hover`) intentionally goes
+     the other direction (darker tint) — that's the existing macOS-Settings
+     pattern for row interactivity, and works fine on top of a brighter
+     resting state. */
+  --row-rest: #fafafa;
   --row-hover: #eef1f4;
   --row-selected: #ddf4ff;
   --terminal-cover-bg: rgba(242, 242, 242, 0.94);
@@ -571,19 +583,32 @@ body {
   flex-direction: column;
 }
 
+/* The entire row is a click target that toggles the folder — see the
+   `onClick={toggle}` on `.tag-folder-row` in `profile-tree.tsx`. The
+   per-tag `+`, hamburger, and count pill stop propagation (or sit on top
+   of their own handlers), so only the bare strip + the header button +
+   the count pill end up reaching the row handler. `cursor: pointer`
+   makes the whole strip read as clickable, not just the header button. */
 .tag-folder-row {
   display: flex;
   align-items: stretch;
   border-bottom: 1px solid var(--border);
   background: transparent;
+  cursor: pointer;
 }
 
 .tag-folder-row:hover {
   background: var(--row-hover);
 }
 
+/* `flex: 0 1 auto` (not `flex: 1`) keeps the header from consuming all the
+   row's free space — that way the per-tag `+` button can sit immediately
+   next to the pill instead of being pushed to the far right. The right
+   cluster (overflow button + count pill) reclaims the right edge via their
+   own `margin-left: auto`. The label still ellipsis-shrinks via its existing
+   `max-width: 12rem`. */
 .tag-folder-header {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -678,6 +703,16 @@ body {
    stays visible while its menu is open (`.tag-folder-overflow-btn--open`)
    so the user has a stable target while clicking through the menu items.
    Hover-less devices (touch) show it at low opacity unconditionally. */
+/* Now that `.tag-folder-header` is `flex: 0 1 auto` (so the per-tag `+`
+   button can sit next to the pill instead of being pushed to the right),
+   the right cluster needs an explicit push. The overflow button gets
+   `margin-left: auto` to absorb all the free space, which keeps it pinned
+   to the right edge next to the count pill (its adjacent sibling, see the
+   `+ .tag-folder-count-pill` override below that zeroes the count pill's
+   own `margin-left: auto` so they don't fight for the free space). For
+   Untagged folders (no overflow rendered) the count pill's `margin-left:
+   auto` is the only auto margin in the row, so it still gets pushed right
+   on its own. */
 .tag-folder-overflow-btn {
   display: inline-flex;
   align-items: center;
@@ -686,8 +721,13 @@ body {
      this button would be top-anchored next to the (taller) header button.
      Match the `.tag-folder-count-pill` opt-out for the same reason. */
   align-self: center;
-  width: 1.55rem;
-  height: 1.55rem;
+  margin-left: auto;
+  /* Size matches the per-tag `+` button (`.tag-folder-new-btn`) and the
+     sidebar-header `.sidebar-add-icon-btn-sm` — 1rem × 1rem with a 10px
+     glyph — so all three small circular controls in / around the tag-folder
+     row read at the same visual scale next to the small tag pill. */
+  width: 1rem;
+  height: 1rem;
   padding: 0;
   margin-right: 0.4rem;
   border-radius: 50%;
@@ -702,6 +742,10 @@ body {
     border-color 0.12s ease,
     color 0.12s ease,
     background 0.12s ease;
+}
+
+.tag-folder-overflow-btn + .tag-folder-count-pill {
+  margin-left: 0;
 }
 
 .tag-folder-row:hover .tag-folder-overflow-btn,
@@ -724,19 +768,137 @@ body {
 }
 
 /* `OverflowMenuIcon` defaults to 20×20 — that's tuned for the right-panel's
-   1.85rem action button. Inside the sidebar's smaller 1.55rem tag-folder
-   button the same icon reads as cramped, so shrink it here. CSS overrides
-   the SVG width/height attributes (they're presentation attributes). */
+   1.85rem action button. Inside the sidebar's 1rem tag-folder button the
+   same icon would be far too large, so shrink it to match the `+` button's
+   10×10 glyph. `transform: translateX(0)` is the same WebKit flex+SVG
+   centering opt-in `.tag-folder-new-btn svg` uses. CSS overrides the SVG
+   width/height attributes (they're presentation attributes). */
 .tag-folder-overflow-btn svg {
-  width: 14px;
-  height: 14px;
+  width: 10px;
+  height: 10px;
   display: block;
+  flex-shrink: 0;
+  transform: translateX(0);
 }
 
 @media (hover: none) {
   .tag-folder-overflow-btn {
     opacity: 0.92;
     pointer-events: auto;
+  }
+}
+
+/* Per-tag "New terminal" button. Sits immediately to the right of the tag
+   pill (left-clustered with it inside `.tag-folder-row`) and opens the
+   profile editor in create mode with the folder's tag already populated.
+   Sized to match the sidebar header's `.sidebar-add-icon-btn-sm`
+   (1rem × 1rem with a 10px glyph) so the two read as the same control at
+   the same visual scale — much smaller than the overflow button so it
+   doesn't dominate the row next to the small tag pill. Green tint comes
+   from `.sidebar-new-terminal-btn`'s `--running` palette. */
+.tag-folder-new-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+  /* Negative margin pulls the button back into the header's right padding
+     (0.5rem) so the visible gap between the pill and the `+` button is
+     ~0.4rem (half of what it was before). Reducing the header padding
+     directly would also affect Untagged folders, which we don't want. */
+  margin-left: -0.1rem;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--running) 35%, transparent);
+  background: color-mix(in srgb, var(--running) 12%, transparent);
+  color: var(--button-fg);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.1s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    background 0.12s ease;
+}
+
+.tag-folder-row:hover .tag-folder-new-btn,
+.tag-folder-row:focus-within .tag-folder-new-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tag-folder-new-btn:hover {
+  border-color: color-mix(in srgb, var(--running) 55%, transparent);
+  background: color-mix(in srgb, var(--running) 20%, transparent);
+}
+
+.tag-folder-new-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Match the sidebar header `+` glyph size (10×10) so the two buttons are
+   visually identical. `NewTerminalIcon` defaults to 18×18 which is far
+   too big for the 1rem circular button — CSS overrides the SVG's width /
+   height presentation attributes. `transform: translateX(0)` matches the
+   sidebar-head WebKit flex+SVG centering opt-in (`.sidebar-head-actions
+   .sidebar-add-icon-btn svg`) — without the identity transform the icon
+   can sit a hair off-center inside the small circular button. */
+.tag-folder-new-btn svg {
+  width: 10px;
+  height: 10px;
+  display: block;
+  flex-shrink: 0;
+  transform: translateX(0);
+}
+
+/* Bold the plus glyph just like the sidebar-header new-terminal button —
+   expands the fill outward with a same-color stroke so the icon doesn't
+   look wispy against the tinted background. */
+.tag-folder-new-btn svg path {
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  paint-order: stroke fill;
+}
+
+@media (hover: none) {
+  .tag-folder-new-btn {
+    opacity: 0.92;
+    pointer-events: auto;
+  }
+}
+
+/* Smooth expand / collapse for the nested profile-row list. Uses the
+   `grid-template-rows: 0fr ↔ 1fr` trick so we can transition between
+   collapsed and the children's *natural* height without measuring it in
+   JS. The single child (`.tag-folder-children`) must have `overflow:
+   hidden` and `min-height: 0` so the grid track can actually shrink to 0
+   — without `min-height: 0` the row defaults to `min-content` sizing and
+   the collapse "sticks" at the tallest row's height. Supported on
+   Tauri's macOS WebKit (Safari 17+) and Chrome / Firefox 124+; on older
+   engines the transition is ignored and expand / collapse simply snaps
+   (functionally identical to the previous mount / unmount approach). */
+.tag-folder-children-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.18s ease;
+}
+
+.tag-folder--expanded > .tag-folder-children-wrap {
+  grid-template-rows: 1fr;
+}
+
+.tag-folder-children {
+  overflow: hidden;
+  min-height: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tag-folder-children-wrap {
+    transition: none;
   }
 }
 
@@ -767,7 +929,11 @@ body {
   padding: 0.55rem 2.4rem 0.55rem 0.75rem;
   border: none;
   border-bottom: none;
-  background: transparent;
+  /* Lifted off `--panel` by one step (see `--row-rest` in `:root`) so the
+     terminal rows visually separate from the tag-folder header rows that
+     sit above them on the panel background. `--row-hover` and
+     `--row-selected` further override this below. */
+  background: var(--row-rest);
   color: var(--text);
   cursor: pointer;
   display: flex;
@@ -1412,7 +1578,7 @@ body {
 .xterm-host {
   flex: 1;
   min-height: 0;
-  padding: 0.35rem;
+  padding: 0.35rem 0.35rem 0.35rem calc(0.35rem + 2px);
   border-radius: 6px;
   overflow: hidden;
 }

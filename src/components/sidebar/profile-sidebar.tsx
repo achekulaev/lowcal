@@ -188,6 +188,7 @@ export function ProfileSidebar(props: {
   setSelectedId: (id: string) => void;
   setProfileMenu: (s: { clientX: number; clientY: number; profileId: string }) => void;
   openCreateModal: () => void;
+  openCreateModalForTag: (tag: string) => void;
   toggleProfileRun: (p: ProfileDto) => void;
   startSpinHold: Record<string, true>;
   stopSpinHold: Record<string, true>;
@@ -220,6 +221,7 @@ export function ProfileSidebar(props: {
     setSelectedId,
     setProfileMenu,
     openCreateModal,
+    openCreateModalForTag,
     toggleProfileRun,
     startSpinHold,
     stopSpinHold,
@@ -406,6 +408,7 @@ export function ProfileSidebar(props: {
             renderProfileRow={renderProfileRow}
             onOpenTagMenu={onOpenTagMenu}
             tagMenuOpenForTag={tagMenuOpenForTag}
+            onNewTerminalForTag={openCreateModalForTag}
           />
         )}
         {(searchActive ? searchResults : profiles).length === 0 ? (

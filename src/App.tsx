@@ -34,6 +34,7 @@ import { confirmDeleteProfile } from "./utils/delete-profile-dialog";
 import { formatUserFacingError, notifyUserError } from "./utils/errors";
 import {
   emptyForm,
+  emptyFormWithTag,
   envRecordFromLines,
   formFromProfile,
   nextSelectedIdAfterDelete,
@@ -510,6 +511,17 @@ export default function App() {
     setModalMode("create");
   }, []);
 
+  // Variant invoked by the sidebar's per-tag-folder `+` button: same flow as
+  // `openCreateModal` but pre-fills `form.tags` with the folder's tag so the
+  // user doesn't have to re-type it. The tag is just a regular chip in the
+  // editor — they can still remove it or add more before saving.
+  const openCreateModalForTag = useCallback((tag: string) => {
+    setEditId(null);
+    setForm(emptyFormWithTag(tag));
+    setModalError(null);
+    setModalMode("create");
+  }, []);
+
   const openEditModal = useCallback((p: ProfileDto) => {
     setEditId(p.id);
     setForm(formFromProfile(p));
@@ -937,6 +949,7 @@ export default function App() {
           setSelectedId={setSelectedId}
           setProfileMenu={setProfileMenu}
           openCreateModal={openCreateModal}
+          openCreateModalForTag={openCreateModalForTag}
           toggleProfileRun={toggleProfileRun}
           startSpinHold={startSpinHold}
           stopSpinHold={stopSpinHold}
