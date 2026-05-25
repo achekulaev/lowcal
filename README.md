@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src-tauri/icons/128x128@2x.png" alt="Lowcal app icon" width="160" />
+  <img src="src-tauri/icons/128x128@2x.png" alt="Lowcal app icon" width="128" />
 </p>
 
 # Lowcal Terminal Orchestrator
