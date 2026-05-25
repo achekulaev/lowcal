@@ -4,7 +4,7 @@
 
 # Lowcal Terminal Orchestrator
 
-A small desktop app for keeping a tidy stable of dev terminals — one tab per
+A small desktop app for keeping a tidy stable stack of dev terminals — one tab per
 project / service, each backed by a real interactive PTY, each remembering its
 own working directory, environment, command, and tags. Group profiles by **tag folders**.
 Start / Stop whole tags at once.
