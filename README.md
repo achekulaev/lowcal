@@ -108,6 +108,45 @@ the app into `/Applications` yourself.
 
 ---
 
+## Running on macOS (unsigned build)
+
+LowCal is a personal-scratch project and isn't currently signed with a paid
+**Apple Developer ID** certificate, so the build you produce locally (or
+download from a release, if any) is **ad-hoc signed**. macOS Gatekeeper sees
+that, marks the `.dmg` as quarantined when it lands in `~/Downloads`, and on
+first launch you'll get one of:
+
+- *"LowCal" can't be opened because Apple cannot check it for malicious software.*
+- *"LowCal" is damaged and can't be opened. You should move it to the Trash.*
+  (This second message is misleading — the app isn't damaged, it's just
+  quarantined and unsigned.)
+
+Two ways past it, pick whichever you prefer:
+
+**Option A — right-click → Open (one-time, GUI):**
+
+1. Drag `LowCal.app` into `/Applications` from the DMG.
+2. In Finder, **right-click** (or Control-click) the app → **Open**.
+3. In the warning dialog, click **Open** again.
+
+macOS remembers the exception per app, so subsequent launches are normal
+double-clicks.
+
+**Option B — strip the quarantine flag (one-time, terminal):**
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/LowCal.app"
+```
+
+After this the app launches with a normal double-click.
+
+If you build LowCal yourself with `npm run tauri build` and run it from
+`src-tauri/target/release/bundle/macos/LowCal.app` directly, you usually
+won't hit the quarantine dialog at all — the flag is only added by Safari,
+Mail, AirDrop, etc. when a file arrives from "outside".
+
+---
+
 ## Configuration
 
 `terminals.yaml` lives in the OS app config directory (e.g. on macOS:
