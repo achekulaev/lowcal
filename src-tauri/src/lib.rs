@@ -30,6 +30,7 @@ use tower_http::cors::CorsLayer;
 
 mod app_settings;
 mod broadcast_idle;
+mod window_bounds;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -547,6 +548,10 @@ fn emit_quit_confirmation(app: &AppHandle, running: Vec<String>) {
 #[tauri::command]
 async fn confirm_quit_proceed(app: AppHandle, state: tauri::State<'_, SharedState>) -> Result<(), String> {
     state.close_confirmed.store(true, Ordering::SeqCst);
+    // Belt-and-braces: capture the latest window bounds before the process
+    // dies, in case the user resized within the frontend's 200 ms debounce
+    // of confirming the quit.
+    window_bounds::save_current_bounds(&app);
     app.exit(0);
     Ok(())
 }
@@ -2487,6 +2492,12 @@ pub fn run() {
                     // Cmd+Q + native-menu Quit click both land here, so we can
                     // run the same close-confirm flow as the red traffic light
                     // (`on_window_event`) before actually exiting.
+                    // Save the latest window bounds on every Cmd+Q regardless
+                    // of which branch we take below — the user just expressed
+                    // "quit intent", and the modal can sit open arbitrarily
+                    // long before they cancel or confirm, so this is our last
+                    // chance to capture the *current* size/position.
+                    window_bounds::save_current_bounds(app);
                     let state_arc: SharedState = match app.try_state::<SharedState>() {
                         Some(s) => s.inner().clone(),
                         None => {
@@ -2524,6 +2535,13 @@ pub fn run() {
             }
 
             let app = window.app_handle().clone();
+            // Persist the latest size/position before any branch returns.
+            // This covers the red-traffic-light path (no running profiles →
+            // the close proceeds and the process exits without ever calling
+            // `app.exit(0)` directly) as well as the prompt-then-confirm
+            // branch (where the bounds are saved again in
+            // `confirm_quit_proceed`, harmless idempotent overwrite).
+            window_bounds::save_current_bounds(&app);
             let state_arc: SharedState = {
                 let Some(state) = app.try_state::<SharedState>() else { return; };
                 state.inner().clone()
@@ -2548,6 +2566,21 @@ pub fn run() {
             let state = Arc::new(AppStateInner::new(config_path.clone()).map_err(|e| e.to_string())?);
             let shared = Arc::clone(&state);
             app.manage(shared.clone());
+
+            // Restore the saved window bounds **before** showing the main
+            // window. `tauri.conf.json` ships the main window with
+            // `visible: false` so the user never sees the default
+            // 1280×840-at-OS-default-position flash that frontend-side
+            // restore would otherwise cause. Missing / corrupt snapshot
+            // falls back to the default; we always show afterwards.
+            if let Some(bounds) = window_bounds::load_bounds(app.handle()) {
+                window_bounds::apply_bounds_to_main_window(app.handle(), bounds);
+            }
+            if let Some(main_window) = app.get_webview_window("main") {
+                if let Err(e) = main_window.show() {
+                    tracing::warn!("main window show() failed: {e}");
+                }
+            }
 
             tauri::async_runtime::spawn(run_axum(shared.clone()));
 
@@ -2591,6 +2624,7 @@ pub fn run() {
             set_edit_terminal_menu_enabled,
             app_settings::get_app_settings,
             app_settings::set_app_settings,
+            window_bounds::save_window_bounds,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

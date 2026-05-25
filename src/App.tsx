@@ -39,6 +39,7 @@ import {
   formFromProfile,
   nextSelectedIdAfterDelete,
 } from "./utils/profile-form";
+import { installWindowBoundsPersistence } from "./utils/window-bounds";
 
 /** When no tab is selected; matches startup title in `tauri.conf.json`. */
 const MAIN_WINDOW_TITLE_IDLE = "Lowcal Terminal Orchestrator";
@@ -248,6 +249,29 @@ export default function App() {
     void invoke<string | null>("user_home_directory").then(setHomeDirAbsolute).catch(() => {
       setHomeDirAbsolute(null);
     });
+  }, []);
+
+  // Install resize + move listeners that ask Rust to persist the current
+  // bounds to `<app_config_dir>/window-bounds.json`. Restore on startup is
+  // handled entirely on the Rust side in the `setup(...)` hook — the main
+  // window is created with `visible: false` and only shown after the saved
+  // bounds (if any) have been applied, so the user never sees the default
+  // 1280×840-at-OS-default-position flash that frontend-side restore would
+  // otherwise cause.
+  useEffect(() => {
+    let unsubscribe: (() => void) | null = null;
+    let cancelled = false;
+    void (async () => {
+      unsubscribe = await installWindowBoundsPersistence();
+      if (cancelled) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (unsubscribe) unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
