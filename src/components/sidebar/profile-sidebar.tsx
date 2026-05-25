@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { tagPillStyle } from "../../utils/tag-pills";
 import { onWindowDragMouseDown } from "../../utils/window-drag";
 import {
@@ -15,6 +15,36 @@ import type { ResolvedTheme } from "../../settings/global-settings";
 import { PTY_OUTPUT_ACTIVITY_MS } from "../../constants/terminal-ui";
 import { ProfileTree } from "./profile-tree";
 import type { LegacyRef, MutableRefObject, RefObject } from "react";
+
+/**
+ * localStorage key for the expanded tag-folder set. Stored as a JSON array of
+ * folder ids (real tag strings plus the `UNTAGGED_FOLDER_ID` sentinel from
+ * `profile-tree.tsx`). Bumping this key effectively resets everyone's saved
+ * tree state, so leave it alone unless the shape changes.
+ */
+const EXPANDED_TAG_FOLDERS_STORAGE_KEY = "terminal-orchestrator:expanded-tag-folders";
+
+function loadExpandedTagFolders(): Set<string> {
+  try {
+    const raw = localStorage.getItem(EXPANDED_TAG_FOLDERS_STORAGE_KEY);
+    if (raw == null) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((x): x is string => typeof x === "string"));
+  } catch {
+    // Corrupt JSON, disabled storage, or quota errors — fall back to empty.
+    return new Set();
+  }
+}
+
+function saveExpandedTagFolders(set: Set<string>) {
+  try {
+    localStorage.setItem(EXPANDED_TAG_FOLDERS_STORAGE_KEY, JSON.stringify([...set]));
+  } catch {
+    // Storage disabled / quota exceeded — degrade silently; the in-memory set
+    // still drives the UI for this session.
+  }
+}
 
 /**
  * Single sidebar row for one profile. Rendered both by the tag tree (nested
@@ -199,7 +229,55 @@ export function ProfileSidebar(props: {
 
   // Owned by the sidebar (not the tree) so collapse state survives the
   // search/tree toggle — the tree unmounts while a query is active.
-  const [expandedTagFolders, setExpandedTagFolders] = useState<Set<string>>(new Set());
+  // Hydrated from `localStorage` so a restart restores the user's last
+  // expanded/collapsed shape; see `loadExpandedTagFolders` above.
+  const [expandedTagFolders, setExpandedTagFolders] = useState<Set<string>>(
+    loadExpandedTagFolders,
+  );
+
+  // Mirror every change back to `localStorage`. Cheap (small string, single
+  // write per user toggle / new-tag expansion); no debounce needed.
+  useEffect(() => {
+    saveExpandedTagFolders(expandedTagFolders);
+  }, [expandedTagFolders]);
+
+  // Auto-expand any tag that's *newly created* during this session so the
+  // user immediately sees the row they just added inside its folder. We must
+  // be careful about *when* to capture the baseline: `profiles` from
+  // `useProfiles` starts as `[]` and is replaced asynchronously once the
+  // backend's `list_profiles` call resolves (and again on every
+  // `profiles-updated` event). Snapshotting on the very first effect run
+  // would therefore record an empty set and then treat every pre-existing
+  // tag arriving on the next render as "new", clobbering the restored
+  // expanded state. Wait for the first non-empty `allTags` instead — at
+  // that point profiles have been loaded and the snapshot represents the
+  // workspace's actual starting tag set.
+  const knownTagsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (knownTagsRef.current === null) {
+      if (allTags.length === 0) return;
+      knownTagsRef.current = new Set(allTags);
+      return;
+    }
+    const known = knownTagsRef.current;
+    const newlyAdded: string[] = [];
+    for (const t of allTags) {
+      if (!known.has(t)) {
+        newlyAdded.push(t);
+        known.add(t);
+      }
+    }
+    if (newlyAdded.length === 0) return;
+    setExpandedTagFolders((prev) => {
+      let next: Set<string> | null = null;
+      for (const t of newlyAdded) {
+        if (prev.has(t)) continue;
+        if (next === null) next = new Set(prev);
+        next.add(t);
+      }
+      return next ?? prev;
+    });
+  }, [allTags]);
 
   // Bottom-of-row hover/focus controls call `onToggleRun(p)` — wrap to keep
   // the signature compatible with the tree's per-row `ProfileTabRow`.
