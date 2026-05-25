@@ -924,6 +924,40 @@ body {
 .terminal-stage-header--empty {
   border-bottom-color: transparent;
   background: var(--terminal-cover-bg);
+  /* Positioning context for `.terminal-stage-add-hint` (absolute child). */
+  position: relative;
+}
+
+/*
+ * Empty-state coachmark inside the right-pane header. Absolutely positioned
+ * at the header padding inset so the row matches `.sidebar-head` across the
+ * splitter (same `--main-header-pad-y/x` and `--main-header-primary-row-min-height`
+ * tokens drive both), which makes the arrow read as actually pointing at
+ * the `+` button rather than floating below it. Styling intentionally
+ * matches the empty-state body copy (`--muted`, `.88rem`, `1.45` line) so
+ * it reads as part of the same voice. `pointer-events: none` so the
+ * underlying `.terminal-stage-placeholder` drag region still works for
+ * window moves.
+ */
+.terminal-stage-add-hint {
+  position: absolute;
+  top: var(--main-header-pad-y);
+  left: var(--main-header-pad-x);
+  min-height: var(--main-header-primary-row-min-height);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  pointer-events: none;
+  user-select: none;
+}
+
+.terminal-stage-add-hint__arrow {
+  font-size: 1em;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .terminal-stage-head-main {
@@ -1304,6 +1338,7 @@ body {
   color: color-mix(in srgb, var(--muted) 75%, transparent);
   line-height: 1.45;
 }
+
 
 .profile-row-wrap.tab-rail-profile.selected .profile-row {
   background: linear-gradient(

@@ -56,6 +56,23 @@ export function TerminalStageHeader(props: {
     <header
       className={`terminal-stage-header${selected ? "" : " terminal-stage-header--empty"}`}
     >
+      {/*
+       * Coachmark for the empty state — `← Add a new terminal` aligned with
+       * the sidebar's `+` button in the same `.sidebar-head` primary row (both
+       * use `--main-header-pad-y/x` + `--main-header-primary-row-min-height`,
+       * so positioning inside the header padding lines them up across the
+       * splitter without absolute magic numbers). Decorative only — the
+       * actionable target is the `+` button itself; `pointer-events: none`
+       * keeps the surrounding placeholder draggable for window moves, and
+       * the body cover's existing "create a new one" copy carries the
+       * accessibility load (`aria-hidden` here).
+       */}
+      {!selected ? (
+        <div className="terminal-stage-add-hint" aria-hidden="true">
+          <span className="terminal-stage-add-hint__arrow">←</span>
+          <span>Add a new terminal</span>
+        </div>
+      ) : null}
       <div className="terminal-stage-head-main">
         {selected ? (
           <>
